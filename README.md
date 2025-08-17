@@ -136,10 +136,6 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 - **`Select[T]`**: A step that executes one of two other steps based on a selector function.
 - **`Middleware[T]`**: A function that wraps a step to add functionality, such as logging or error handling.
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit a pull request or open an issue.
-
 ## License
 
 This project is licensed under the Apache License - see the [LICENSE](LICENSE) file for details.
