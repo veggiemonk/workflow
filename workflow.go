@@ -124,17 +124,21 @@ func (f StepFunc[T]) String() string {
 // Middleware
 
 // MidFunc is an adapter to allow the use of ordinary functions as middleware.
-type MidFunc[T any] func(context.Context, *T) (*T, error)
+type MidFunc[T any] struct {
+	Name string
+	Fn   func(context.Context, *T) (*T, error)
+	Next Step[T]
+}
 
 // Run executes the function.
-func (f MidFunc[T]) Run(ctx context.Context, req *T) (*T, error) {
-	return f(ctx, req)
+func (m *MidFunc[T]) Run(ctx context.Context, req *T) (*T, error) {
+	return m.Fn(ctx, req)
 }
 
 // String returns the name of the function.
-func (f MidFunc[T]) String() string {
-	var z T
-	return fmt.Sprintf("MidFunc[%T]", z)
+func (m *MidFunc[T]) String() string {
+	s := m.Next.String()
+	return fmt.Sprintf("%s(%s)", m.Name, s)
 }
 
 // Middleware is a function that wraps a step to add functionality, such as
@@ -367,7 +371,6 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 	g, groupCtx := errgroup.WithContext(ctx)
 	resps := make([]*T, len(p.Tasks))
 	for i := range tasks {
-		i := i
 		g.Go(func() error {
 			defer CapturePanic(groupCtx)
 
