@@ -17,6 +17,7 @@ import (
 // returns a response of the same type T and an error.
 type Step[T any] interface {
 	Run(context.Context, *T) (*T, error)
+	fmt.Stringer
 }
 
 // Name returns the name of a step.
@@ -67,6 +68,16 @@ func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 func (p *Pipeline[T]) String() string {
 	var buf strings.Builder
 	buf.WriteString(Name(p))
+	if len(p.Steps) > 0 {
+		buf.WriteString(`(`)
+		for i, step := range p.Steps {
+			if i > 0 {
+				buf.WriteString(", ")
+			}
+			buf.WriteString(step.String())
+		}
+		buf.WriteString(`)`)
+	}
 	return buf.String()
 }
 
@@ -101,6 +112,12 @@ type MidFunc[T any] func(context.Context, *T) (*T, error)
 // Run executes the function.
 func (f MidFunc[T]) Run(ctx context.Context, req *T) (*T, error) {
 	return f(ctx, req)
+}
+
+// String returns the name of the function.
+func (f MidFunc[T]) String() string {
+	var z T
+	return fmt.Sprintf("MidFunc[%T]", z)
 }
 
 // Middleware is a function that wraps a step to add functionality, such as

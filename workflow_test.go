@@ -181,7 +181,42 @@ func TestPipeline(t *testing.T) {
 	if diff := Diff(got, want); diff != "" {
 		t.Fatal(diff)
 	}
+
+	if diff := Diff(p.String(), wantTree); diff != "" {
+		t.Fatal(diff)
+	}
 }
+
+var wantTree = `
+Pipeline[Result]
+├── MidFunc[workflow_test.Result]
+├── MidFunc[workflow_test.Result]
+├── MidFunc[workflow_test.Result]
+├── MidFunc[workflow_test.Result]
+└── MidFunc[workflow_test.Result]
+`
+
+/*
+
+.
+├── testutil
+│   ├── assert.go
+│   ├── assert_test.go
+│   ├── diff.go
+│   ├── out
+│   │   └── diff
+│   ├── testdata
+│   │   └── deployment.yaml
+│   └── update_test.go
+├── todo.md
+└── workflow
+    ├── ctx.go
+    ├── doc.go
+    ├── workflow.go
+    ├── workflow_example_test.go
+    └── workflow_test.go
+
+*/
 
 func TestString(t *testing.T) {
 	p := wf.NewPipeline[Result]()
