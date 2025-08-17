@@ -51,6 +51,9 @@ func Example() {
 		}),
 	}
 
+	// Print the pipeline structure.
+	fmt.Println(p)
+
 	// Run the pipeline.
 	result, err := p.Run(context.Background(), &Result{})
 	if err != nil {
@@ -59,5 +62,14 @@ func Example() {
 
 	// Print the final result.
 	fmt.Println("Final Result:", result)
-	// Output: Final Result: Result{State: workflow_test.State{Counter:1}, Messages: [starting pipeline in series pipeline finished]}
+	// Output: Pipeline[Result]
+	// ├── StepFunc[workflow_test.Result]
+	// ├── series[Result]
+	// │   ├── StepFunc[workflow_test.Result]
+	// │   └── parallel[Result]
+	// │       ├── StepFunc[workflow_test.Result]
+	// │       └── StepFunc[workflow_test.Result]
+	// └── StepFunc[workflow_test.Result]
+	// 
+	// Final Result: Result{State: workflow_test.State{Counter:1}, Messages: [starting pipeline in series pipeline finished]}
 }
