@@ -66,18 +66,35 @@ func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 }
 
 func (p *Pipeline[T]) String() string {
-	var buf strings.Builder
-	buf.WriteString(Name(p))
-	if len(p.Steps) > 0 {
-		buf.WriteString(`(`)
-		for i, step := range p.Steps {
-			if i > 0 {
-				buf.WriteString(", ")
-			}
-			buf.WriteString(step.String())
-		}
-		buf.WriteString(`)`)
+	if len(p.Steps) == 0 {
+		return Name(p)
 	}
+	var buf strings.Builder
+	buf.WriteString("\n")
+	buf.WriteString(Name(p))
+	for i, step := range p.Steps {
+		buf.WriteString("\n")
+		var prefix string
+		var childPrefix string
+		if i == len(p.Steps)-1 {
+			prefix = "└── "
+			childPrefix = "    "
+		} else {
+			prefix = "├── "
+			childPrefix = "│   "
+		}
+		buf.WriteString(prefix)
+
+		s := step.String()
+		lines := strings.Split(s, "\n")
+		buf.WriteString(lines[0])
+		for _, line := range lines[1:] {
+			buf.WriteString("\n")
+			buf.WriteString(childPrefix)
+			buf.WriteString(line)
+		}
+	}
+	buf.WriteString("\n")
 	return buf.String()
 }
 
@@ -145,8 +162,41 @@ type selector[T any] struct {
 
 // String returns the name of the selector.
 func (s selector[T]) String() string {
-	var z T
-	return fmt.Sprintf("Selector Step[%T] { IF: %v, ELSE: %v}", z, s.ifStep, s.elseStep)
+	var buf strings.Builder
+	buf.WriteString(Name(&s))
+
+	// IF
+	buf.WriteString("\n")
+	buf.WriteString("├── IF: ")
+	if s.ifStep != nil {
+		ifStr := s.ifStep.String()
+		lines := strings.Split(ifStr, "\n")
+		buf.WriteString(lines[0])
+		for _, line := range lines[1:] {
+			buf.WriteString("\n")
+			buf.WriteString("│   ")
+			buf.WriteString(line)
+		}
+	} else {
+		buf.WriteString("none")
+	}
+
+	// ELSE
+	buf.WriteString("\n")
+	buf.WriteString("└── ELSE: ")
+	if s.elseStep != nil {
+		elseStr := s.elseStep.String()
+		lines := strings.Split(elseStr, "\n")
+		buf.WriteString(lines[0])
+		for _, line := range lines[1:] {
+			buf.WriteString("\n")
+			buf.WriteString("    ")
+			buf.WriteString(line)
+		}
+	} else {
+		buf.WriteString("none")
+	}
+	return buf.String()
 }
 
 // Select creates a new selector step.
@@ -190,11 +240,34 @@ func (s *series[T]) String() string {
 	if s == nil {
 		return "none"
 	}
-	tt := make([]string, 0, len(s.Stages))
-	for _, t := range s.Stages {
-		tt = append(tt, Name(t))
+	if len(s.Stages) == 0 {
+		return Name(s)
 	}
-	return fmt.Sprintf("Serie{Stages: [%s]}", strings.Join(tt, ","))
+	var buf strings.Builder
+	buf.WriteString(Name(s))
+	for i, stage := range s.Stages {
+		buf.WriteString("\n")
+		var prefix string
+		var childPrefix string
+		if i == len(s.Stages)-1 {
+			prefix = "└── "
+			childPrefix = "    "
+		} else {
+			prefix = "├── "
+			childPrefix = "│   "
+		}
+		buf.WriteString(prefix)
+
+		st := stage.String()
+		lines := strings.Split(st, "\n")
+		buf.WriteString(lines[0])
+		for _, line := range lines[1:] {
+			buf.WriteString("\n")
+			buf.WriteString(childPrefix)
+			buf.WriteString(line)
+		}
+	}
+	return buf.String()
 }
 
 // Series executes a series of steps in sequential order.
@@ -238,11 +311,34 @@ func (p *parallel[T]) String() string {
 	if p == nil {
 		return "none"
 	}
-	tt := make([]string, 0, len(p.Tasks))
-	for _, t := range p.Tasks {
-		tt = append(tt, Name(t))
+	if len(p.Tasks) == 0 {
+		return Name(p)
 	}
-	return fmt.Sprintf("Parallel{Tasks: [%s]}", strings.Join(tt, ", "))
+	var buf strings.Builder
+	buf.WriteString(Name(p))
+	for i, task := range p.Tasks {
+		buf.WriteString("\n")
+		var prefix string
+		var childPrefix string
+		if i == len(p.Tasks)-1 {
+			prefix = "└── "
+			childPrefix = "    "
+		} else {
+			prefix = "├── "
+			childPrefix = "│   "
+		}
+		buf.WriteString(prefix)
+
+		st := task.String()
+		lines := strings.Split(st, "\n")
+		buf.WriteString(lines[0])
+		for _, line := range lines[1:] {
+			buf.WriteString("\n")
+			buf.WriteString(childPrefix)
+			buf.WriteString(line)
+		}
+	}
+	return buf.String()
 }
 
 // MergeRequest is a function that merges the results of multiple steps into a
