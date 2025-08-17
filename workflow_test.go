@@ -156,9 +156,7 @@ func TestPipeline(t *testing.T) {
 				t.Fatal(err)
 			}
 			if sid.String() != "00000000-0000-0000-0000-000000000029" {
-				t.Fatalf("got %q, want %q",
-					sid.String(),
-					"00000000-0000-0000-0000-000000000029")
+				t.Fatalf("got %q, want %q", sid.String(), "00000000-0000-0000-0000-000000000029")
 			}
 			r.Messages = append(r.Messages, "last step")
 			return resp, err
@@ -213,28 +211,6 @@ Pipeline[Result]
     ├── IF: StepFunc[workflow_test.Result]
     └── ELSE: StepFunc[workflow_test.Result])
 `
-
-/*
-
-.
-├── testutil
-│   ├── assert.go
-│   ├── assert_test.go
-│   ├── diff.go
-│   ├── out
-│   │   └── diff
-│   ├── testdata
-│   │   └── deployment.yaml
-│   └── update_test.go
-├── todo.md
-└── workflow
-    ├── ctx.go
-    ├── doc.go
-    ├── workflow.go
-    ├── workflow_example_test.go
-    └── workflow_test.go
-
-*/
 
 func TestString(t *testing.T) {
 	p := wf.NewPipeline[Result]()
