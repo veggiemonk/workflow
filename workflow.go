@@ -55,7 +55,6 @@ func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 		for _, m := range slices.Backward(p.Mid) {
 			p.Steps[i] = m(p.Steps[i])
 		}
-		ctx = setStepID(ctx, gen.ID())
 		resp, err = p.Steps[i].Run(ctx, req)
 		if err != nil {
 			return nil, err
@@ -112,7 +111,7 @@ type StepFunc[T any] func(context.Context, *T) (*T, error)
 
 // Run executes the function.
 func (f StepFunc[T]) Run(ctx context.Context, res *T) (*T, error) {
-	return f(setStepID(ctx, gen.ID()), res)
+	return f(ctx, res)
 }
 
 // String returns the name of the function.
@@ -228,7 +227,7 @@ func (s selector[T]) Run(ctx context.Context, r *T) (*T, error) {
 	for _, m := range slices.Backward(s.Mid) {
 		step = m(step)
 	}
-	return step.Run(setStepID(ctx, gen.ID()), r)
+	return step.Run(ctx, r)
 }
 
 // Series
@@ -291,7 +290,6 @@ func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 		for _, m := range slices.Backward(s.Mid) {
 			s.Stages[i] = m(s.Stages[i])
 		}
-		ctx = setStepID(ctx, gen.ID())
 		resp, err = s.Stages[i].Run(ctx, req)
 		if err != nil {
 			return resp, err
@@ -376,7 +374,7 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 
 			copyReq := new(T)
 			*copyReq = *req
-			resp, err := tasks[i].Run(setStepID(groupCtx, gen.ID()), copyReq)
+			resp, err := tasks[i].Run(ctx, copyReq)
 			if err != nil {
 				return err
 			}

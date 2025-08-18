@@ -84,8 +84,6 @@ func TestMiddleware(t *testing.T) {
 }
 
 func TestPipeline(t *testing.T) {
-	wf.SetIDGenerator(&wf.StaticID{})
-
 	var w io.Writer
 	if *lf {
 		w = os.Stdout
@@ -150,13 +148,6 @@ func TestPipeline(t *testing.T) {
 			resp, err := f.Run(ctx, r)
 			if err != nil {
 				t.Fatal(err)
-			}
-			sid, err := wf.GetStepID(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if sid.String() != "00000000-0000-0000-0000-000000000029" {
-				t.Fatalf("got %q, want %q", sid.String(), "00000000-0000-0000-0000-000000000029")
 			}
 			r.Messages = append(r.Messages, "last step")
 			return resp, err
@@ -242,14 +233,12 @@ func LoggerMiddleware[T any](l *slog.Logger) wf.Middleware[T] {
 				start := time.Now()
 				name := wf.Name(next)
 				if name != "MidFunc" {
-					id, _ := wf.GetStepID(ctx)
-					l.Info("start", "Type", name, "id", id, "STEP", next)
+					l.Info("start", "Type", name, "STEP", next)
 				}
 				resp, err := next.Run(ctx, res)
 
 				if name != "MidFunc" {
-					id, _ := wf.GetStepID(ctx)
-					l.Info("done", "Type", name, "id", id, "duration", time.Since(start),
+					l.Info("done", "Type", name, "duration", time.Since(start),
 						"Result", fmt.Sprintf("%v", resp))
 				}
 				return resp, err
