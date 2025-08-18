@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -9,8 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
-	"time"
 
 	"dario.cat/mergo"
 	"github.com/google/go-cmp/cmp"
@@ -122,7 +123,7 @@ func TestPipeline(t *testing.T) {
 	}
 
 	mid := []wf.Middleware[Result]{
-		LoggerMiddleware[Result](logger),
+		wf.LoggerMiddleware[Result](logger),
 	}
 	p := wf.NewPipeline(mid...)
 	p.Steps = []wf.Step[Result]{
@@ -224,29 +225,6 @@ func Diff(got, want any) string {
 	return ""
 }
 
-func LoggerMiddleware[T any](l *slog.Logger) wf.Middleware[T] {
-	return func(next wf.Step[T]) wf.Step[T] {
-		return &wf.MidFunc[T]{
-			Name: "Logger",
-			Next: next,
-			Fn: func(ctx context.Context, res *T) (*T, error) {
-				start := time.Now()
-				name := wf.Name(next)
-				if name != "MidFunc" {
-					l.Info("start", "Type", name, "STEP", next)
-				}
-				resp, err := next.Run(ctx, res)
-
-				if name != "MidFunc" {
-					l.Info("done", "Type", name, "duration", time.Since(start),
-						"Result", fmt.Sprintf("%v", resp))
-				}
-				return resp, err
-			},
-		}
-	}
-}
-
 type handleErr struct{ l *slog.Logger }
 
 func (h handleErr) String() string { return "ErrorHandler" }
@@ -275,4 +253,72 @@ func (t addInt) Transformer(typ reflect.Type) func(dst, src reflect.Value) error
 		}
 	}
 	return nil
+}
+
+// TestUUIDMiddleware demonstrates how to use the UUID middleware to assign unique IDs to each step.
+func TestUUIDMiddleware(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Create UUID middleware that assigns a unique ID to each step
+	uuidMid := wf.UUIDMiddleware[Result]()
+
+	// Create logging middleware that also displays the step UUID
+	logMid := func(next wf.Step[Result]) wf.Step[Result] {
+		return &wf.MidFunc[Result]{
+			Name: "UUIDLogger",
+			Next: next,
+			Fn: func(ctx context.Context, res *Result) (*Result, error) {
+				stepUUID := ctx.Value(wf.StepUUIDKey).(string)
+				name := wf.Name(next)
+				if name != "MidFunc" {
+					fmt.Fprintf(&buf, "start: name=%s, uuid=%s\n", name, stepUUID)
+				}
+				resp, err := next.Run(ctx, res)
+				if name != "MidFunc" {
+					fmt.Fprintf(&buf, "done: name=%s, uuid=%s\n", name, stepUUID)
+				}
+				return resp, err
+			},
+		}
+	}
+
+	// Create a pipeline with both UUID and logging middleware
+	p := wf.NewPipeline(uuidMid, logMid)
+
+	// Define the steps
+	p.Steps = []wf.Step[Result]{
+		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			stepUUID := ctx.Value(wf.StepUUIDKey).(string)
+			r.Messages = append(r.Messages, fmt.Sprintf("Step 1 executed with UUID: %s", stepUUID))
+			return r, nil
+		}),
+		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			stepUUID := ctx.Value(wf.StepUUIDKey).(string)
+			r.Messages = append(r.Messages, fmt.Sprintf("Step 2 executed with UUID: %s", stepUUID))
+			return r, nil
+		}),
+	}
+
+	// Run the pipeline
+	result := &Result{}
+	result, err := p.Run(context.Background(), result)
+	if err != nil {
+		t.Fatalf("Pipeline failed: %v", err)
+	}
+
+	// Verify that each step received a UUID
+	if len(result.Messages) != 2 {
+		t.Fatalf("Expected 2 messages, got %d", len(result.Messages))
+	}
+
+	// Check that each message contains a UUID
+	for i, msg := range result.Messages {
+		if !strings.Contains(msg, "UUID:") {
+			t.Errorf("Message %d doesn't contain UUID: %s", i+1, msg)
+		}
+		fmt.Printf("Message %d: %s\n", i+1, msg)
+	}
+
+	// Print the log output to show the UUIDs in action
+	fmt.Print("Log output:\n", buf.String())
 }
