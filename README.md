@@ -136,6 +136,51 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 - **`Select[T]`**: A step that executes one of two other steps based on a selector function.
 - **`Middleware[T]`**: A function that wraps a step to add functionality, such as logging or error handling.
 
+## Examples
+
+Comprehensive examples are available in the [`examples/`](./examples/) directory:
+
+- **[Basic](./examples/basic/)**: Simple sequential pipeline demonstrating fundamental concepts
+- **[CI/CD](./examples/cicd/)**: Realistic CI/CD pipeline with parallel checks and conditional deployment
+- **[Advanced](./examples/advanced/)**: Sophisticated data processing with custom middleware and complex workflows
+
+Run examples:
+```bash
+# Basic example
+cd examples/basic && go run main.go
+
+# CI/CD pipeline example
+cd examples/cicd && go run main.go
+
+# Advanced data processing
+cd examples/advanced && go run main.go
+```
+
+## Documentation
+
+- **[Architecture](./docs/architecture.md)**: Detailed design principles and extension points
+- **[Best Practices](./docs/best-practices.md)**: Patterns, anti-patterns, and optimization tips
+- **[CHANGELOG](./CHANGELOG.md)**: Version history and breaking changes
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Run linting
+make lint
+
+# Run all examples
+make examples
+
+# Run CI pipeline locally
+make ci
+
+# See all available commands
+make help
+```
+
 ## License
 
 This project is licensed under the Apache License - see the [LICENSE](LICENSE) file for details.
