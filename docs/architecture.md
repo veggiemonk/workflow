@@ -36,8 +36,8 @@ A step that orchestrates a sequence of other steps.
 
 ```go
 type Pipeline[T any] struct {
-    Steps []Step[T]
-    Mid[T]
+    Steps      []Step[T]
+    Middleware []Middleware[T]
 }
 ```
 
@@ -69,14 +69,14 @@ type Middleware[T any] func(s Step[T]) Step[T]
 Sequential execution where each step receives the output of the previous step.
 
 ```go
-func Series[T any](mid Mid[T], steps ...Step[T]) *series[T]
+func Series[T any](mid []Middleware[T], steps ...Step[T]) *series[T]
 ```
 
 #### Parallel[T] 
 Concurrent execution where all steps receive the same input, and results are merged.
 
 ```go
-func Parallel[T any](mid Mid[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T]
+func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T]
 ```
 
 **Key Concepts:**
@@ -89,7 +89,7 @@ func Parallel[T any](mid Mid[T], merge MergeRequest[T], steps ...Step[T]) *paral
 Conditional execution based on runtime conditions.
 
 ```go
-func Select[T any](mid Mid[T], s Selector[T], ifStep, elseStep Step[T]) Step[T]
+func Select[T any](mid []Middleware[T], s Selector[T], ifStep, elseStep Step[T]) Step[T]
 ```
 
 ## Data Flow

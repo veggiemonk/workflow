@@ -316,7 +316,6 @@ func TestUUIDMiddleware(t *testing.T) {
 		if !strings.Contains(msg, "UUID:") {
 			t.Errorf("Message %d doesn't contain UUID: %s", i+1, msg)
 		}
-		fmt.Printf("Message %d: %s\n", i+1, msg)
 	}
 
 	// Print the log output to show the UUIDs in action
