@@ -59,7 +59,7 @@ func main() {
 		// Step 4: Deploy if build succeeded
 		wf.Select(nil,
 			buildSucceeded,
-			wf.Series(nil,
+			wf.Sequential(nil,
 				wf.StepFunc[BuildContext](deployToStaging),
 				wf.StepFunc[BuildContext](runSmokeTests),
 				wf.StepFunc[BuildContext](deployToProduction),

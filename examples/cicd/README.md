@@ -23,7 +23,7 @@ This CI/CD pipeline includes:
 - **Parallel execution**: Quality checks run concurrently
 - **Conditional logic**: Using `Select` for branching workflows
 - **Middleware**: UUID tracking and structured logging
-- **Series workflows**: Multi-step deployment process
+- **Sequential workflows**: Multi-step deployment process
 - **Error handling**: Graceful failure management
 - **Real-world simulation**: Timing and realistic step names
 

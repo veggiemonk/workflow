@@ -20,7 +20,7 @@ type DataProcessingContext struct {
 	Metrics       ProcessingMetrics
 	Errors        []error
 	Status        string
-	Metadata      map[string]interface{}
+	Metadata      map[string]any
 }
 
 type DataRecord struct {
@@ -62,7 +62,7 @@ func metricsMiddleware() wf.Middleware[DataProcessingContext] {
 
 				// Update metadata with step timing
 				if result.Metadata == nil {
-					result.Metadata = make(map[string]interface{})
+					result.Metadata = make(map[string]any)
 				}
 				result.Metadata[fmt.Sprintf("step_%s_duration", stepName)] = duration
 
@@ -127,7 +127,7 @@ func main() {
 		wf.Select(nil,
 			dataQualityGood,
 			// High quality data path
-			wf.Series(nil,
+			wf.Sequential(nil,
 				wf.Parallel(nil, mergeDataProcessingResults,
 					wf.StepFunc[DataProcessingContext](processHighValueRecords),
 					wf.StepFunc[DataProcessingContext](processLowValueRecords),
@@ -136,7 +136,7 @@ func main() {
 				wf.StepFunc[DataProcessingContext](aggregateResults),
 			),
 			// Low quality data path
-			wf.Series(nil,
+			wf.Sequential(nil,
 				wf.StepFunc[DataProcessingContext](cleanData),
 				wf.StepFunc[DataProcessingContext](reprocessData),
 			),
@@ -155,7 +155,7 @@ func main() {
 
 	result, err := pipeline.Run(ctx, &DataProcessingContext{
 		InputData: inputData,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 		Status:    "initialized",
 	})
 
@@ -421,7 +421,7 @@ func mergeDataProcessingResults(ctx context.Context, base *DataProcessingContext
 		// Merge metadata
 		for key, value := range result.Metadata {
 			if base.Metadata == nil {
-				base.Metadata = make(map[string]interface{})
+				base.Metadata = make(map[string]any)
 			}
 			base.Metadata[key] = value
 		}
