@@ -26,12 +26,15 @@ examples: ## Run all examples
 	@cd examples/cicd && go run main.go
 	@echo "\n\nRunning advanced example..."
 	@cd examples/advanced && go run main.go
+	@echo "\n\nRunning middleware example..."
+	@cd examples/middleware && go run main.go
 
 tidy: ## Run go mod tidy on all modules
 	go mod tidy
 	cd examples/basic && go mod tidy
 	cd examples/cicd && go mod tidy
 	cd examples/advanced && go mod tidy
+	cd examples/middleware && go mod tidy
 
 clean: ## Clean build artifacts
 	go clean ./...
