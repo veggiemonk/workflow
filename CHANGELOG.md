@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.2.0] - 2025-08-19
+
 ### Added
 - CI/CD workflow automation with GitHub Actions
 - Comprehensive examples directory with basic, CI/CD, and advanced patterns
@@ -43,5 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Debuggable**: Tree visualization of pipeline structure
 - **Concurrent execution**: Safe parallel processing with error groups
 
-[Unreleased]: https://github.com/veggiemonk/workflow/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/veggiemonk/workflow/compare/v0.2.0...HEAD
+[v0.2.0]: https://github.com/veggiemonk/workflow/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/veggiemonk/workflow/releases/tag/v0.1.0
