@@ -1,0 +1,29 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  # Don't enable any linters by default; just the ones that we explicitly
+  # enable in the list below.
+  default: none
+  enable:
+    - bidichk
+    - govet
+    - misspell
+    - revive
+    - gosec
+    # - staticcheck
+  settings:
+    revive:
+      severity: error
+    gosec:
+      severity: high
+      confidence: high
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      rewrite-rules:
+        - pattern: interface{}
+          replacement: any

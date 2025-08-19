@@ -4,17 +4,17 @@
 //
 // # Key Features
 //
-//   - **Pipelines**: Define a sequence of steps to be executed.
-//   - **Sequential and Parallel Execution**: Run steps one after another or concurrently.
-//   - **Middleware**: Intercept and modify the execution of steps.
-//   - **Generic**: Works with any data type.
-//   - **Context-aware**: Supports cancellation and deadlines through context.
+//   - Pipelines: Define a sequence of steps to be executed.
+//   - Sequential and Parallel Execution: Run steps one after another or concurrently.
+//   - Middleware: Intercept and modify the execution of steps.
+//   - Generic: Works with any data type.
+//   - Context-aware: Supports cancellation and deadlines through context.
 //
 // # Core Concepts
 //
-//   - **Step**: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
-//   - **Pipeline**: A series of steps that are executed in order.
-//   - **Series**: A step that executes a list of other steps sequentially.
-//   - **Parallel**: A step that executes a list of other steps in parallel and merges their results.
-//   - **Middleware**: A function that wraps a step to add functionality, such as logging or error handling.
+//   - Step: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
+//   - Pipeline: A series of steps that are executed in order.
+//   - Sequential: A step that executes a list of other steps sequentially.
+//   - Parallel: A step that executes a list of other steps in parallel and merges their results.
+//   - Middleware: A function that wraps a step to add functionality, such as logging or error handling.
 package workflow

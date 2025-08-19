@@ -9,7 +9,12 @@ A tiny, flexible, and extensible workflow engine in Go, designed to be generic a
 - **Pipelines**: Define a sequence of steps to be executed.
 - **Sequential and Parallel Execution**: Run steps one after another or concurrently.
 - **Conditional Logic**: Use selectors to execute different steps based on conditions.
-- **Middleware**: Intercept and modify the execution of steps for cross-cutting concerns like logging, metrics, or error handling.
+- **Middleware**: Intercept and modify the execution of steps for cross-cutting concerns:
+  - **Retry Middleware**: Automatic retry with configurable backoff strategies
+  - **Timeout Middleware**: Per-step timeout enforcement with context cancellation
+  - **Circuit Breaker Middleware**: Prevent cascading failures with automatic recovery
+  - **Logger Middleware**: Structured logging for observability
+  - **UUID Middleware**: Unique step execution tracking
 - **Generic**: Works with any data type, providing type safety.
 - **Context-aware**: Supports cancellation and deadlines through `context.Context`.
 - **Extensible**: Easily create your own custom steps by implementing the `Step` interface.
@@ -60,11 +65,11 @@ func main() {
 			r.Messages = append(r.Messages, "starting pipeline")
 			return r, nil
 		}),
-		// Step 2: A series of steps that run sequentially.
-		wf.Series(nil,
+		// Step 2: A sequential of steps that run sequentially.
+		wf.Sequential(nil,
 			// Step 2a: A simple function.
 			wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-				r.Messages = append(r.Messages, "in series")
+				r.Messages = append(r.Messages, "in sequence")
 				return r, nil
 			}),
 			// Step 2b: A parallel execution of steps.
@@ -131,10 +136,59 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 
 - **`Step[T]`**: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
 - **`Pipeline[T]`**: A series of steps that are executed in order.
-- **`Series[T]`**: A step that executes a list of other steps sequentially.
+- **`Sequential[T]`**: A step that executes a list of other steps sequentially.
 - **`Parallel[T]`**: A step that executes a list of other steps in parallel and merges their results.
 - **`Select[T]`**: A step that executes one of two other steps based on a selector function.
 - **`Middleware[T]`**: A function that wraps a step to add functionality, such as logging or error handling.
+
+## Examples
+
+Comprehensive examples are available in the [`examples/`](./examples/) directory:
+
+- **[Basic](./examples/basic/)**: Simple sequential pipeline demonstrating fundamental concepts
+- **[CI/CD](./examples/cicd/)**: Realistic CI/CD pipeline with parallel checks and conditional deployment
+- **[Advanced](./examples/advanced/)**: Sophisticated data processing with custom middleware and complex workflows
+- **[Middleware](./examples/middleware/)**: Comprehensive demonstration of retry, timeout, and circuit breaker middleware
+
+Run examples:
+```bash
+# Basic example
+cd examples/basic && go run main.go
+
+# CI/CD pipeline example
+cd examples/cicd && go run main.go
+
+# Advanced data processing
+cd examples/advanced && go run main.go
+
+# Middleware demonstration
+cd examples/middleware && go run main.go
+```
+
+## Documentation
+
+- **[Architecture](./docs/architecture.md)**: Detailed design principles and extension points
+- **[Best Practices](./docs/best-practices.md)**: Patterns, anti-patterns, and optimization tips
+- **[CHANGELOG](./CHANGELOG.md)**: Version history and breaking changes
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Run linting
+make lint
+
+# Run all examples
+make examples
+
+# Run CI pipeline locally
+make ci
+
+# See all available commands
+make help
+```
 
 ## License
 

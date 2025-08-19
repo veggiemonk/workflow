@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
 
 	"dario.cat/mergo"
 	"golang.org/x/sync/errgroup"
@@ -30,21 +32,11 @@ func Name[T any](s Step[T]) string {
 	return strings.Replace(t.Name(), reflect.TypeOf(z).Elem().PkgPath()+".", "", 1)
 }
 
-type typ struct{}
-
-var (
-	_ Step[typ] = (*Pipeline[typ])(nil)
-	_ Step[typ] = (*MidFunc[typ])(nil)
-	_ Step[typ] = (*series[typ])(nil)
-	_ Step[typ] = (*parallel[typ])(nil)
-	_ Step[typ] = (*selector[typ])(nil)
-)
-
 // Pipeline is a step that executes a series of other steps in sequential order.
 // It can also have middleware that is applied to each step in the pipeline.
 type Pipeline[T any] struct {
-	Steps []Step[T]
-	Mid[T]
+	Steps      []Step[T]
+	Middleware []Middleware[T]
 }
 
 // Run executes the pipeline.
@@ -52,10 +44,9 @@ func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 	resp := req
 	var err error
 	for i := range p.Steps {
-		for _, m := range slices.Backward(p.Mid) {
+		for _, m := range slices.Backward(p.Middleware) {
 			p.Steps[i] = m(p.Steps[i])
 		}
-		ctx = setStepID(ctx, gen.ID())
 		resp, err = p.Steps[i].Run(ctx, req)
 		if err != nil {
 			return nil, err
@@ -101,18 +92,18 @@ func (p *Pipeline[T]) String() string {
 // NewPipeline creates a new pipeline with the given middleware.
 func NewPipeline[T any](mid ...Middleware[T]) *Pipeline[T] {
 	return &Pipeline[T]{
-		Mid:   mid,
-		Steps: make([]Step[T], 0),
+		Middleware: mid,
+		Steps:      make([]Step[T], 0),
 	}
 }
 
-// StepFunc is an adapter to allow the use of ordinary functions as workflow steps.
-
+// StepFunc is a function type for a unit of work in the workflow.
+// It is an adapter to allow the use of ordinary functions as workflow steps.
 type StepFunc[T any] func(context.Context, *T) (*T, error)
 
-// Run executes the function.
+// Run executes the function that implements the Step interface.
 func (f StepFunc[T]) Run(ctx context.Context, res *T) (*T, error) {
-	return f(setStepID(ctx, gen.ID()), res)
+	return f(ctx, res)
 }
 
 // String returns the name of the function.
@@ -145,23 +136,19 @@ func (m *MidFunc[T]) String() string {
 // logging or error handling.
 type Middleware[T any] func(s Step[T]) Step[T]
 
-// Mid is a slice of middleware.
-type Mid[T any] []Middleware[T]
-
 // Selector
 
-// Selector is a function that returns true or false based on the context and
-// the request.
-
+// Selector is a function that returns true or false based on the context and the request.
+// Selector is a function type used to select steps conditionally in a workflow.
 type Selector[T any] func(context.Context, *T) bool
 
 // selector is a step that executes one of two other steps based on the result
 // of a selector function.
 type selector[T any] struct {
-	s        Selector[T]
-	ifStep   Step[T]
-	elseStep Step[T]
-	Mid[T]
+	s          Selector[T]
+	ifStep     Step[T]
+	elseStep   Step[T]
+	middleware []Middleware[T]
 }
 
 // String returns the name of the selector.
@@ -204,12 +191,12 @@ func (s selector[T]) String() string {
 }
 
 // Select creates a new selector step.
-func Select[T any](mid Mid[T], s Selector[T], ifStep, elseStep Step[T]) Step[T] {
+func Select[T any](mid []Middleware[T], s Selector[T], ifStep, elseStep Step[T]) Step[T] {
 	return &selector[T]{
-		s:        s,
-		ifStep:   ifStep,
-		elseStep: elseStep,
-		Mid:      mid,
+		s:          s,
+		ifStep:     ifStep,
+		elseStep:   elseStep,
+		middleware: mid,
 	}
 }
 
@@ -218,25 +205,24 @@ func (s selector[T]) Run(ctx context.Context, r *T) (*T, error) {
 	var step Step[T]
 	if s.s(ctx, r) {
 		step = s.ifStep
-	}
-	if s.elseStep != nil {
+	} else {
 		step = s.elseStep
 	}
 	if step == nil {
-		return nil, fmt.Errorf("selector chosed missing else branch: %v", r)
+		return nil, fmt.Errorf("selector has no step for the selected condition")
 	}
-	for _, m := range slices.Backward(s.Mid) {
+	for _, m := range slices.Backward(s.middleware) {
 		step = m(step)
 	}
-	return step.Run(setStepID(ctx, gen.ID()), r)
+	return step.Run(ctx, r)
 }
 
 // Series
 
 // series is a step that executes a list of other steps sequentially.
 type series[T any] struct {
-	Stages []Step[T]
-	Mid[T]
+	Stages     []Step[T]
+	middleware []Middleware[T]
 }
 
 // String returns the name of the series.
@@ -274,11 +260,13 @@ func (s *series[T]) String() string {
 	return buf.String()
 }
 
-// Series executes a series of steps in sequential order.
-func Series[T any](mid Mid[T], steps ...Step[T]) *series[T] {
+// Sequential executes a series of steps in sequential order.
+func Sequential[T any](mid []Middleware[T], steps ...Step[T]) *series[T] {
+	// Series creates a sequential pipeline of steps with optional middleware.
+	// Returns a private type *series[T].
 	return &series[T]{
-		Stages: steps,
-		Mid:    mid,
+		Stages:     steps,
+		middleware: mid,
 	}
 }
 
@@ -288,10 +276,9 @@ func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 	resp := req
 
 	for i := range s.Stages {
-		for _, m := range slices.Backward(s.Mid) {
+		for _, m := range slices.Backward(s.middleware) {
 			s.Stages[i] = m(s.Stages[i])
 		}
-		ctx = setStepID(ctx, gen.ID())
 		resp, err = s.Stages[i].Run(ctx, req)
 		if err != nil {
 			return resp, err
@@ -305,9 +292,9 @@ func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 
 // parallel is a step that executes a list of other steps in parallel.
 type parallel[T any] struct {
-	merge MergeRequest[T]
-	Tasks []Step[T]
-	Mid[T]
+	merge      MergeRequest[T]
+	Tasks      []Step[T]
+	middleware []Middleware[T]
 }
 
 // String returns the name of the parallel step.
@@ -351,11 +338,11 @@ type MergeRequest[T any] func(context.Context, *T, ...*T) (*T, error)
 
 // Parallel executes a list of steps in parallel.
 // Once all the steps are done, the merge request [MergeRequest] will combine all the results into one struct T.
-func Parallel[T any](mid Mid[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T] {
+func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T] {
 	return &parallel[T]{
-		merge: merge,
-		Tasks: steps,
-		Mid:   mid,
+		merge:      merge,
+		Tasks:      steps,
+		middleware: mid,
 	}
 }
 
@@ -364,23 +351,26 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 	tasks := make([]Step[T], len(p.Tasks))
 	for i, s := range p.Tasks {
 		tasks[i] = s
-		for _, m := range slices.Backward(p.Mid) {
+		for _, m := range slices.Backward(p.middleware) {
 			tasks[i] = m(tasks[i])
 		}
 	}
 	g, groupCtx := errgroup.WithContext(ctx)
 	resps := make([]*T, len(p.Tasks))
+	mu := sync.Mutex{}
 	for i := range tasks {
+		task := tasks[i] // Capture task
 		g.Go(func() error {
 			defer CapturePanic(groupCtx)
 
-			copyReq := new(T)
-			*copyReq = *req
-			resp, err := tasks[i].Run(setStepID(groupCtx, gen.ID()), copyReq)
+			copyReq := SafeCopy(req)
+			resp, err := task.Run(groupCtx, copyReq)
 			if err != nil {
 				return err
 			}
+			mu.Lock()
 			resps[i] = resp
+			mu.Unlock()
 			return nil
 		})
 	}
@@ -392,7 +382,7 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 
 // MergeTransform is a merge request that merges the results of multiple steps
 // into a single result using the mergo library.
-func MergeTransform[T any](t ...func(*mergo.Config)) MergeRequest[T] {
+func MergeTransform[T any](opts ...func(*mergo.Config)) MergeRequest[T] {
 	return func(ctx context.Context, res *T, responses ...*T) (*T, error) {
 		var err error
 		for _, r := range responses {
@@ -400,8 +390,7 @@ func MergeTransform[T any](t ...func(*mergo.Config)) MergeRequest[T] {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("aborting: %w", ctx.Err())
 			default:
-
-				err = mergo.Merge(res, r, t...)
+				err = mergo.Merge(res, r, opts...)
 				if err != nil {
 					return nil, err
 				}
@@ -417,9 +406,13 @@ func Merge[T any](ctx context.Context, req *T, responses ...*T) (*T, error) {
 	return MergeTransform[T]()(ctx, req, responses...)
 }
 
-// CapturePanic recovers from a panic and logs the error.
+// CapturePanic recovers from a panic and logs the error with stack trace.
 func CapturePanic(ctx context.Context) {
 	if r := recover(); r != nil {
-		slog.Error("panic recover", r)
+		slog.Error("panic recovered",
+			"error", r,
+			"context_cancelled", ctx.Err() != nil,
+			"stack", string(debug.Stack()),
+		)
 	}
 }

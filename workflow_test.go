@@ -1,6 +1,7 @@
 package workflow_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -9,8 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
-	"time"
 
 	"dario.cat/mergo"
 	"github.com/google/go-cmp/cmp"
@@ -71,7 +72,7 @@ func TestMiddleware(t *testing.T) {
 		t.Fatalf("cpt %d != 0", cpt)
 	}
 
-	p.Steps = append(p.Steps, wf.StepFunc[Result](func(ctx context.Context, res *Result) (*Result, error) {
+	p.Steps = append(p.Steps, wf.StepFunc[Result](func(_ context.Context, res *Result) (*Result, error) {
 		return res, nil
 	}))
 	_, err = p.Run(context.Background(), &Result{Messages: []string{}})
@@ -84,8 +85,6 @@ func TestMiddleware(t *testing.T) {
 }
 
 func TestPipeline(t *testing.T) {
-	wf.SetIDGenerator(&wf.StaticID{})
-
 	var w io.Writer
 	if *lf {
 		w = os.Stdout
@@ -94,7 +93,7 @@ func TestPipeline(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				t := a.Value.Time()
 				a = slog.Attr{Key: "time", Value: slog.StringValue(t.Format("15:04:05"))}
@@ -103,38 +102,38 @@ func TestPipeline(t *testing.T) {
 		},
 	}))
 
-	selector := func(ctx context.Context, r *Result) bool {
+	selector := func(_ context.Context, r *Result) bool {
 		return r.Err == nil
 	}
-	ifstep := wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+	ifstep := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 		r.Messages = append(r.Messages, "if step selected")
 		return r, nil
 	})
-	elsestep := wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+	elsestep := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 		r.Messages = append(r.Messages, "else step selected")
 		return r, nil
 	})
 
 	sf := make([]wf.Step[Result], 0)
 	for range 10 {
-		sf = append(sf, wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		sf = append(sf, wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.State.Counter++
 			return r, nil
 		}))
 	}
 
 	mid := []wf.Middleware[Result]{
-		LoggerMiddleware[Result](logger),
+		wf.LoggerMiddleware[Result](logger),
 	}
 	p := wf.NewPipeline(mid...)
 	p.Steps = []wf.Step[Result]{
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "first step")
 			return r, nil
 		}),
-		wf.Series(mid,
+		wf.Sequential(mid,
 			wf.Parallel(mid, wf.MergeTransform[Result](mergo.WithTransformers(addInt{})), sf...),
-			wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "extra serial step")
 				r.Err = errors.Join(r.Err, errIgnoreMe)
 				return r, nil
@@ -142,7 +141,7 @@ func TestPipeline(t *testing.T) {
 		),
 		handleErr{l: logger},
 		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-			f := wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			f := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "extra inner step")
 				r.Err = errors.Join(r.Err, errors.New("oops"))
 				return r, nil
@@ -150,13 +149,6 @@ func TestPipeline(t *testing.T) {
 			resp, err := f.Run(ctx, r)
 			if err != nil {
 				t.Fatal(err)
-			}
-			sid, err := wf.GetStepID(ctx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if sid.String() != "00000000-0000-0000-0000-000000000029" {
-				t.Fatalf("got %q, want %q", sid.String(), "00000000-0000-0000-0000-000000000029")
 			}
 			r.Messages = append(r.Messages, "last step")
 			return resp, err
@@ -233,38 +225,13 @@ func Diff(got, want any) string {
 	return ""
 }
 
-func LoggerMiddleware[T any](l *slog.Logger) wf.Middleware[T] {
-	return func(next wf.Step[T]) wf.Step[T] {
-		return &wf.MidFunc[T]{
-			Name: "Logger",
-			Next: next,
-			Fn: func(ctx context.Context, res *T) (*T, error) {
-				start := time.Now()
-				name := wf.Name(next)
-				if name != "MidFunc" {
-					id, _ := wf.GetStepID(ctx)
-					l.Info("start", "Type", name, "id", id, "STEP", next)
-				}
-				resp, err := next.Run(ctx, res)
-
-				if name != "MidFunc" {
-					id, _ := wf.GetStepID(ctx)
-					l.Info("done", "Type", name, "id", id, "duration", time.Since(start),
-						"Result", fmt.Sprintf("%v", resp))
-				}
-				return resp, err
-			},
-		}
-	}
-}
-
 type handleErr struct{ l *slog.Logger }
 
 func (h handleErr) String() string { return "ErrorHandler" }
 
 var errIgnoreMe = errors.New("ignore me")
 
-func (h handleErr) Run(ctx context.Context, r *Result) (*Result, error) {
+func (h handleErr) Run(_ context.Context, r *Result) (*Result, error) {
 	if errors.Is(r.Err, errIgnoreMe) {
 		h.l.Error("ignoring error", "err", r.Err)
 		r.Err = nil
@@ -286,4 +253,71 @@ func (t addInt) Transformer(typ reflect.Type) func(dst, src reflect.Value) error
 		}
 	}
 	return nil
+}
+
+// TestUUIDMiddleware demonstrates how to use the UUID middleware to assign unique IDs to each step.
+func TestUUIDMiddleware(t *testing.T) {
+	var buf bytes.Buffer
+
+	// Create UUID middleware that assigns a unique ID to each step
+	uuidMid := wf.UUIDMiddleware[Result]()
+
+	// Create logging middleware that also displays the step UUID
+	logMid := func(next wf.Step[Result]) wf.Step[Result] {
+		return &wf.MidFunc[Result]{
+			Name: "UUIDLogger",
+			Next: next,
+			Fn: func(ctx context.Context, res *Result) (*Result, error) {
+				stepUUID := ctx.Value(wf.StepUUIDKey).(string)
+				name := wf.Name(next)
+				if name != "MidFunc" {
+					fmt.Fprintf(&buf, "start: name=%s, uuid=%s\n", name, stepUUID)
+				}
+				resp, err := next.Run(ctx, res)
+				if name != "MidFunc" {
+					fmt.Fprintf(&buf, "done: name=%s, uuid=%s\n", name, stepUUID)
+				}
+				return resp, err
+			},
+		}
+	}
+
+	// Create a pipeline with both UUID and logging middleware
+	p := wf.NewPipeline(uuidMid, logMid)
+
+	// Define the steps
+	p.Steps = []wf.Step[Result]{
+		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			stepUUID := ctx.Value(wf.StepUUIDKey).(string)
+			r.Messages = append(r.Messages, fmt.Sprintf("Step 1 executed with UUID: %s", stepUUID))
+			return r, nil
+		}),
+		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			stepUUID := ctx.Value(wf.StepUUIDKey).(string)
+			r.Messages = append(r.Messages, fmt.Sprintf("Step 2 executed with UUID: %s", stepUUID))
+			return r, nil
+		}),
+	}
+
+	// Run the pipeline
+	result := &Result{}
+	result, err := p.Run(context.Background(), result)
+	if err != nil {
+		t.Fatalf("Pipeline failed: %v", err)
+	}
+
+	// Verify that each step received a UUID
+	if len(result.Messages) != 2 {
+		t.Fatalf("Expected 2 messages, got %d", len(result.Messages))
+	}
+
+	// Check that each message contains a UUID
+	for i, msg := range result.Messages {
+		if !strings.Contains(msg, "UUID:") {
+			t.Errorf("Message %d doesn't contain UUID: %s", i+1, msg)
+		}
+	}
+
+	// Print the log output to show the UUIDs in action
+	fmt.Print("Log output:\n", buf.String())
 }
