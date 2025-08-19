@@ -65,11 +65,11 @@ func main() {
 			r.Messages = append(r.Messages, "starting pipeline")
 			return r, nil
 		}),
-		// Step 2: A series of steps that run sequentially.
-		wf.Series(nil,
+		// Step 2: A sequential of steps that run sequentially.
+		wf.Sequential(nil,
 			// Step 2a: A simple function.
 			wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-				r.Messages = append(r.Messages, "in series")
+				r.Messages = append(r.Messages, "in sequence")
 				return r, nil
 			}),
 			// Step 2b: A parallel execution of steps.
@@ -136,7 +136,7 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 
 - **`Step[T]`**: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
 - **`Pipeline[T]`**: A series of steps that are executed in order.
-- **`Series[T]`**: A step that executes a list of other steps sequentially.
+- **`Sequential[T]`**: A step that executes a list of other steps sequentially.
 - **`Parallel[T]`**: A step that executes a list of other steps in parallel and merges their results.
 - **`Select[T]`**: A step that executes one of two other steps based on a selector function.
 - **`Middleware[T]`**: A function that wraps a step to add functionality, such as logging or error handling.

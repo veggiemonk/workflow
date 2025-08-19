@@ -113,7 +113,7 @@ func TestRetryMiddleware(t *testing.T) {
 			config: RetryConfig{
 				MaxAttempts:  3,
 				InitialDelay: 10 * time.Millisecond,
-				ShouldRetry: func(err error) bool {
+				ShouldRetry: func(_ error) bool {
 					return false // never retry
 				},
 			},
@@ -462,7 +462,7 @@ func TestDefaultConfigs(t *testing.T) {
 func TestMiddlewareInPipeline(t *testing.T) {
 	// Test middleware integration with Pipeline
 	step1 := &failingStep{failCount: 1} // Fails once then succeeds
-	step2 := StepFunc[TestData](func(ctx context.Context, req *TestData) (*TestData, error) {
+	step2 := StepFunc[TestData](func(_ context.Context, req *TestData) (*TestData, error) {
 		return &TestData{
 			Value:   req.Value + "_step2",
 			Counter: req.Counter + 1,
@@ -472,7 +472,7 @@ func TestMiddlewareInPipeline(t *testing.T) {
 	retryMiddleware := RetryMiddleware[TestData](DefaultRetryConfig())
 	timeoutMiddleware := TimeoutMiddleware[TestData](1 * time.Second)
 
-	pipeline := NewPipeline[TestData](retryMiddleware, timeoutMiddleware)
+	pipeline := NewPipeline(retryMiddleware, timeoutMiddleware)
 	pipeline.Steps = []Step[TestData]{step1, step2}
 
 	ctx := context.Background()

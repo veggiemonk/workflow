@@ -23,7 +23,7 @@ func TestStepValidation(t *testing.T) {
 	})
 
 	t.Run("valid step validation", func(t *testing.T) {
-		step := wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		step := wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			return data, nil
 		})
 		err := validator.ValidateStep(step)
@@ -35,7 +35,7 @@ func TestStepValidation(t *testing.T) {
 	t.Run("pipeline validation", func(t *testing.T) {
 		pipeline := wf.NewPipeline[TestData]()
 		pipeline.Steps = []wf.Step[TestData]{
-			wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+			wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 				return data, nil
 			}),
 		}
@@ -60,7 +60,7 @@ func TestSafeRun(t *testing.T) {
 		Value int
 	}
 
-	step := wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+	step := wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 		data.Value++
 		return data, nil
 	})
@@ -123,18 +123,18 @@ func TestSafeCopy(t *testing.T) {
 			Slice: []int{1, 2, 3},
 		}
 
-		copy := wf.SafeCopy(original)
-		if copy == nil {
+		cp := wf.SafeCopy(original)
+		if cp == nil {
 			t.Fatal("Expected non-nil copy")
 		}
 
 		// Verify values are copied
-		if copy.Value != original.Value {
-			t.Errorf("Expected value %d, got %d", original.Value, copy.Value)
+		if cp.Value != original.Value {
+			t.Errorf("Expected value %d, got %d", original.Value, cp.Value)
 		}
 
 		// Verify it's a different instance
-		if copy == original {
+		if cp == original {
 			t.Error("Expected different instance")
 		}
 

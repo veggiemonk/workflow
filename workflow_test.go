@@ -72,7 +72,7 @@ func TestMiddleware(t *testing.T) {
 		t.Fatalf("cpt %d != 0", cpt)
 	}
 
-	p.Steps = append(p.Steps, wf.StepFunc[Result](func(ctx context.Context, res *Result) (*Result, error) {
+	p.Steps = append(p.Steps, wf.StepFunc[Result](func(_ context.Context, res *Result) (*Result, error) {
 		return res, nil
 	}))
 	_, err = p.Run(context.Background(), &Result{Messages: []string{}})
@@ -93,7 +93,7 @@ func TestPipeline(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == slog.TimeKey {
 				t := a.Value.Time()
 				a = slog.Attr{Key: "time", Value: slog.StringValue(t.Format("15:04:05"))}
@@ -102,21 +102,21 @@ func TestPipeline(t *testing.T) {
 		},
 	}))
 
-	selector := func(ctx context.Context, r *Result) bool {
+	selector := func(_ context.Context, r *Result) bool {
 		return r.Err == nil
 	}
-	ifstep := wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+	ifstep := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 		r.Messages = append(r.Messages, "if step selected")
 		return r, nil
 	})
-	elsestep := wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+	elsestep := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 		r.Messages = append(r.Messages, "else step selected")
 		return r, nil
 	})
 
 	sf := make([]wf.Step[Result], 0)
 	for range 10 {
-		sf = append(sf, wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		sf = append(sf, wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.State.Counter++
 			return r, nil
 		}))
@@ -127,13 +127,13 @@ func TestPipeline(t *testing.T) {
 	}
 	p := wf.NewPipeline(mid...)
 	p.Steps = []wf.Step[Result]{
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "first step")
 			return r, nil
 		}),
-		wf.Series(mid,
+		wf.Sequential(mid,
 			wf.Parallel(mid, wf.MergeTransform[Result](mergo.WithTransformers(addInt{})), sf...),
-			wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "extra serial step")
 				r.Err = errors.Join(r.Err, errIgnoreMe)
 				return r, nil
@@ -141,7 +141,7 @@ func TestPipeline(t *testing.T) {
 		),
 		handleErr{l: logger},
 		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-			f := wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			f := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "extra inner step")
 				r.Err = errors.Join(r.Err, errors.New("oops"))
 				return r, nil
@@ -231,7 +231,7 @@ func (h handleErr) String() string { return "ErrorHandler" }
 
 var errIgnoreMe = errors.New("ignore me")
 
-func (h handleErr) Run(ctx context.Context, r *Result) (*Result, error) {
+func (h handleErr) Run(_ context.Context, r *Result) (*Result, error) {
 	if errors.Is(r.Err, errIgnoreMe) {
 		h.l.Error("ignoring error", "err", r.Err)
 		r.Err = nil

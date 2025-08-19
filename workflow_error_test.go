@@ -18,12 +18,12 @@ func TestSelectorLogicFix(t *testing.T) {
 		Message string
 	}
 
-	ifStep := wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+	ifStep := wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 		data.Message = "if branch executed"
 		return data, nil
 	})
 
-	elseStep := wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+	elseStep := wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 		data.Message = "else branch executed"
 		return data, nil
 	})
@@ -40,14 +40,14 @@ func TestSelectorLogicFix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			selector := wf.Select(nil,
-				func(ctx context.Context, data *TestData) bool {
+				func(_ context.Context, data *TestData) bool {
 					return data.Value > 0
 				},
 				ifStep,
 				elseStep,
 			)
 
-			result, err := selector.Run(context.Background(), &TestData{Value: tt.conditionValue})
+			result, err := selector.Run(t.Context(), &TestData{Value: tt.conditionValue})
 			if err != nil {
 				t.Fatalf("Expected no error, got %v", err)
 			}
@@ -73,22 +73,22 @@ func TestSelectorWithNilSteps(t *testing.T) {
 		expectError bool
 	}{
 		{"both steps nil", nil, nil, true, true},
-		{"if step nil, condition true", nil, wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) { return data, nil }), true, true},
-		{"else step nil, condition false", wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) { return data, nil }), nil, false, true},
-		{"both steps present", wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) { return data, nil }), wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) { return data, nil }), true, false},
+		{"if step nil, condition true", nil, wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) { return data, nil }), true, true},
+		{"else step nil, condition false", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) { return data, nil }), nil, false, true},
+		{"both steps present", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) { return data, nil }), wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) { return data, nil }), true, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			selector := wf.Select(nil,
-				func(ctx context.Context, data *TestData) bool {
+				func(_ context.Context, _ *TestData) bool {
 					return tt.condition
 				},
 				tt.ifStep,
 				tt.elseStep,
 			)
 
-			_, err := selector.Run(context.Background(), &TestData{Value: 1})
+			_, err := selector.Run(t.Context(), &TestData{Value: 1})
 			if tt.expectError && err == nil {
 				t.Error("Expected error but got none")
 			}
@@ -110,21 +110,21 @@ func TestPipelineErrorPropagation(t *testing.T) {
 
 	pipeline := wf.NewPipeline[TestData]()
 	pipeline.Steps = []wf.Step[TestData]{
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step1")
 			return data, nil
 		}),
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step2")
 			return data, expectedErr // This should stop the pipeline
 		}),
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step3") // This should not execute
 			return data, nil
 		}),
 	}
 
-	result, err := pipeline.Run(context.Background(), &TestData{})
+	result, err := pipeline.Run(t.Context(), &TestData{})
 
 	if err != expectedErr {
 		t.Errorf("Expected error %v, got %v", expectedErr, err)
@@ -145,18 +145,18 @@ func TestParallelExecutionWithErrors(t *testing.T) {
 
 	expectedErr := errors.New("parallel step error")
 
-	successStep := wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+	successStep := wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 		data.Count++
 		return data, nil
 	})
 
-	errorStep := wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+	errorStep := wf.StepFunc[TestData](func(_ context.Context, _ *TestData) (*TestData, error) {
 		return nil, expectedErr
 	})
 
 	parallelStep := wf.Parallel(nil, wf.Merge[TestData], successStep, errorStep, successStep)
 
-	_, err := parallelStep.Run(context.Background(), &TestData{})
+	_, err := parallelStep.Run(t.Context(), &TestData{})
 
 	if err == nil {
 		t.Error("Expected error from parallel execution but got none")
@@ -240,7 +240,7 @@ func TestEmptyParallelExecution(t *testing.T) {
 
 	parallelStep := wf.Parallel(nil, wf.Merge[TestData])
 
-	result, err := parallelStep.Run(context.Background(), &TestData{Value: 42})
+	result, err := parallelStep.Run(t.Context(), &TestData{Value: 42})
 	if err != nil {
 		t.Errorf("Expected no error for empty parallel execution, got %v", err)
 	}
@@ -262,21 +262,21 @@ func TestSeriesErrorPropagation(t *testing.T) {
 
 	expectedErr := errors.New("series step error")
 
-	series := wf.Series(nil,
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+	series := wf.Sequential(nil,
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step1")
 			return data, nil
 		}),
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			return data, expectedErr
 		}),
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step3") // Should not execute
 			return data, nil
 		}),
 	)
 
-	result, err := series.Run(context.Background(), &TestData{})
+	result, err := series.Run(t.Context(), &TestData{})
 
 	if err != expectedErr {
 		t.Errorf("Expected error %v, got %v", expectedErr, err)
@@ -295,7 +295,7 @@ func TestDeepNestedPipelines(t *testing.T) {
 	}
 
 	createNestedStep := func(name string) wf.Step[TestData] {
-		return wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		return wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Path = append(data.Path, name)
 			data.Depth++
 			return data, nil
@@ -309,7 +309,7 @@ func TestDeepNestedPipelines(t *testing.T) {
 		createNestedStep("p2"),
 	)
 
-	innerSeries := wf.Series(nil,
+	innerSeries := wf.Sequential(nil,
 		createNestedStep("s1"),
 		innerParallel,
 		createNestedStep("s2"),
@@ -370,10 +370,10 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 
 	pipeline := wf.NewPipeline(errorRecoveryMiddleware)
 	pipeline.Steps = []wf.Step[TestData]{
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, _ *TestData) (*TestData, error) {
 			return nil, errors.New("intentional error")
 		}),
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Messages = append(data.Messages, "final step")
 			return data, nil
 		}),
@@ -406,7 +406,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	pipeline := wf.NewPipeline[TestData]()
 	pipeline.Steps = []wf.Step[TestData]{
-		wf.StepFunc[TestData](func(ctx context.Context, data *TestData) (*TestData, error) {
+		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			// Simulate some work
 			time.Sleep(10 * time.Millisecond)
 			data.Value++
@@ -417,11 +417,11 @@ func TestConcurrentAccess(t *testing.T) {
 	const numGoroutines = 10
 	results := make(chan *TestData, numGoroutines)
 	errors := make(chan error, numGoroutines)
-
+	ctx := context.Background()
 	// Run pipeline concurrently
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(id int) {
-			result, err := pipeline.Run(context.Background(), &TestData{
+			result, err := pipeline.Run(ctx, &TestData{
 				Value: id,
 				ID:    fmt.Sprintf("goroutine-%d", id),
 			})

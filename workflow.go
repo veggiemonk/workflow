@@ -97,11 +97,11 @@ func NewPipeline[T any](mid ...Middleware[T]) *Pipeline[T] {
 	}
 }
 
-// StepFunc is an adapter to allow the use of ordinary functions as workflow steps.
-
+// StepFunc is a function type for a unit of work in the workflow.
+// It is an adapter to allow the use of ordinary functions as workflow steps.
 type StepFunc[T any] func(context.Context, *T) (*T, error)
 
-// Run executes the function.
+// Run executes the function that implements the Step interface.
 func (f StepFunc[T]) Run(ctx context.Context, res *T) (*T, error) {
 	return f(ctx, res)
 }
@@ -138,9 +138,8 @@ type Middleware[T any] func(s Step[T]) Step[T]
 
 // Selector
 
-// Selector is a function that returns true or false based on the context and
-// the request.
-
+// Selector is a function that returns true or false based on the context and the request.
+// Selector is a function type used to select steps conditionally in a workflow.
 type Selector[T any] func(context.Context, *T) bool
 
 // selector is a step that executes one of two other steps based on the result
@@ -261,8 +260,10 @@ func (s *series[T]) String() string {
 	return buf.String()
 }
 
-// Series executes a series of steps in sequential order.
-func Series[T any](mid []Middleware[T], steps ...Step[T]) *series[T] {
+// Sequential executes a series of steps in sequential order.
+func Sequential[T any](mid []Middleware[T], steps ...Step[T]) *series[T] {
+	// Series creates a sequential pipeline of steps with optional middleware.
+	// Returns a private type *series[T].
 	return &series[T]{
 		Stages:     steps,
 		middleware: mid,

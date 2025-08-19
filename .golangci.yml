@@ -12,6 +12,12 @@ linters:
     - revive
     - gosec
     # - staticcheck
+  settings:
+    revive:
+      severity: error
+    gosec:
+      severity: high
+      confidence: high
 formatters:
   enable:
     - gofmt

@@ -14,7 +14,7 @@
 //
 //   - Step: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
 //   - Pipeline: A series of steps that are executed in order.
-//   - Series: A step that executes a list of other steps sequentially.
+//   - Sequential: A step that executes a list of other steps sequentially.
 //   - Parallel: A step that executes a list of other steps in parallel and merges their results.
 //   - Middleware: A function that wraps a step to add functionality, such as logging or error handling.
 package workflow

@@ -34,6 +34,7 @@ func UUIDMiddleware[T any]() Middleware[T] {
 	}
 }
 
+// LoggerMiddleware returns a middleware that logs step execution using the provided slog.Logger.
 func LoggerMiddleware[T any](l *slog.Logger) Middleware[T] {
 	return func(next Step[T]) Step[T] {
 		return &MidFunc[T]{
@@ -205,8 +206,11 @@ func TimeoutMiddleware[T any](timeout time.Duration) Middleware[T] {
 type CircuitBreakerState int
 
 const (
+	// CircuitClosed indicates the circuit is closed and operations are allowed.
 	CircuitClosed CircuitBreakerState = iota
+	// CircuitOpen indicates the circuit is open and operations are blocked.
 	CircuitOpen
+	// CircuitHalfOpen indicates the circuit is half-open and allows limited operations.
 	CircuitHalfOpen
 )
 
