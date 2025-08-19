@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ccoveille/go-safecast"
 )
 
 // TestData represents test data for middleware tests.
@@ -326,7 +328,11 @@ func TestCircuitBreakerMiddleware(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := &failingStep{failCount: int32(tt.failures)}
+			b, err := safecast.ToInt32(tt.failures) // everything is fine
+			if err != nil {
+				t.Error(err)
+			}
+			step := &failingStep{failCount: b}
 
 			middleware := CircuitBreakerMiddleware[TestData](tt.config)
 			wrappedStep := middleware(step)
