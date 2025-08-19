@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
 
 	"dario.cat/mergo"
 	"golang.org/x/sync/errgroup"
@@ -355,8 +356,8 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 	}
 	g, groupCtx := errgroup.WithContext(ctx)
 	resps := make([]*T, len(p.Tasks))
+	mu := sync.Mutex{}
 	for i := range tasks {
-		i := i           // Capture loop variable
 		task := tasks[i] // Capture task
 		g.Go(func() error {
 			defer CapturePanic(groupCtx)
@@ -366,7 +367,9 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 			if err != nil {
 				return err
 			}
+			mu.Lock()
 			resps[i] = resp
+			mu.Unlock()
 			return nil
 		})
 	}
@@ -378,7 +381,7 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 
 // MergeTransform is a merge request that merges the results of multiple steps
 // into a single result using the mergo library.
-func MergeTransform[T any](t ...func(*mergo.Config)) MergeRequest[T] {
+func MergeTransform[T any](opts ...func(*mergo.Config)) MergeRequest[T] {
 	return func(ctx context.Context, res *T, responses ...*T) (*T, error) {
 		var err error
 		for _, r := range responses {
@@ -386,8 +389,7 @@ func MergeTransform[T any](t ...func(*mergo.Config)) MergeRequest[T] {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("aborting: %w", ctx.Err())
 			default:
-
-				err = mergo.Merge(res, r, t...)
+				err = mergo.Merge(res, r, opts...)
 				if err != nil {
 					return nil, err
 				}
@@ -406,11 +408,10 @@ func Merge[T any](ctx context.Context, req *T, responses ...*T) (*T, error) {
 // CapturePanic recovers from a panic and logs the error with stack trace.
 func CapturePanic(ctx context.Context) {
 	if r := recover(); r != nil {
-		// Import runtime/debug for stack trace
 		slog.Error("panic recovered",
 			"error", r,
 			"context_cancelled", ctx.Err() != nil,
-			"stack", string(debug.Stack()), // Use %+v to get a detailed error message
+			"stack", string(debug.Stack()),
 		)
 	}
 }

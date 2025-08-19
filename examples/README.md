@@ -32,6 +32,16 @@ A sophisticated data processing pipeline featuring:
 
 **Best for**: Advanced patterns, production-ready workflows
 
+### 4. [Middleware](./middleware/)
+Comprehensive demonstration of built-in middleware:
+- **Retry Middleware**: Automatic retry with exponential backoff
+- **Timeout Middleware**: Per-step timeout enforcement
+- **Circuit Breaker Middleware**: Failure protection and recovery
+- **Logger & UUID Middleware**: Observability and tracing
+- **Middleware Composition**: Combining multiple middleware
+
+**Best for**: Understanding resilience patterns, production reliability
+
 ## Running Examples
 
 Each example is self-contained with its own `main.go` and documentation:
@@ -45,6 +55,9 @@ cd cicd && go run main.go
 
 # Advanced example
 cd advanced && go run main.go
+
+# Middleware example
+cd middleware && go run main.go
 ```
 
 ## Learning Path

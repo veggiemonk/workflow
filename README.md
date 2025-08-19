@@ -9,7 +9,12 @@ A tiny, flexible, and extensible workflow engine in Go, designed to be generic a
 - **Pipelines**: Define a sequence of steps to be executed.
 - **Sequential and Parallel Execution**: Run steps one after another or concurrently.
 - **Conditional Logic**: Use selectors to execute different steps based on conditions.
-- **Middleware**: Intercept and modify the execution of steps for cross-cutting concerns like logging, metrics, or error handling.
+- **Middleware**: Intercept and modify the execution of steps for cross-cutting concerns:
+  - **Retry Middleware**: Automatic retry with configurable backoff strategies
+  - **Timeout Middleware**: Per-step timeout enforcement with context cancellation
+  - **Circuit Breaker Middleware**: Prevent cascading failures with automatic recovery
+  - **Logger Middleware**: Structured logging for observability
+  - **UUID Middleware**: Unique step execution tracking
 - **Generic**: Works with any data type, providing type safety.
 - **Context-aware**: Supports cancellation and deadlines through `context.Context`.
 - **Extensible**: Easily create your own custom steps by implementing the `Step` interface.
@@ -143,6 +148,7 @@ Comprehensive examples are available in the [`examples/`](./examples/) directory
 - **[Basic](./examples/basic/)**: Simple sequential pipeline demonstrating fundamental concepts
 - **[CI/CD](./examples/cicd/)**: Realistic CI/CD pipeline with parallel checks and conditional deployment
 - **[Advanced](./examples/advanced/)**: Sophisticated data processing with custom middleware and complex workflows
+- **[Middleware](./examples/middleware/)**: Comprehensive demonstration of retry, timeout, and circuit breaker middleware
 
 Run examples:
 ```bash
@@ -154,6 +160,9 @@ cd examples/cicd && go run main.go
 
 # Advanced data processing
 cd examples/advanced && go run main.go
+
+# Middleware demonstration
+cd examples/middleware && go run main.go
 ```
 
 ## Documentation
