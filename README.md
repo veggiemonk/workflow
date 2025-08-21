@@ -117,14 +117,9 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 			Next: next,
 			Fn: func(ctx context.Context, res *T) (*T, error) {
 				name := wf.Name(next)
-				if name != "MidFunc" {
-					fmt.Fprintf(l, "start: name=%s ", name)
-				}
+				fmt.Fprintf(l, "start: name=%s ", name)
 				resp, err := next.Run(ctx, res)
-
-				if name != "MidFunc" {
-					fmt.Fprintf(l, "done: name=%s ", name)
-				}
+				fmt.Fprintf(l, "done: name=%s ", name)
 				return resp, err
 			},
 		}

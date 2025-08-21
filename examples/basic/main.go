@@ -17,7 +17,7 @@ type ProcessData struct {
 }
 
 func main() {
-	// Create a simple pipeline with logging
+	// Create a simple pipeline
 	pipeline := wf.NewPipeline[ProcessData]()
 
 	// Define the steps

@@ -7,7 +7,6 @@ import (
 	"log"
 	"log/slog"
 	"os"
-	"sync"
 	"time"
 
 	wf "github.com/veggiemonk/workflow"
@@ -101,7 +100,7 @@ func main() {
 	}))
 
 	// Create sample data
-	inputData := generateSampleData(1000)
+	inputData := generateSampleData(50)
 
 	// Create advanced pipeline with multiple middleware
 	pipeline := wf.NewPipeline(
@@ -408,10 +407,7 @@ func dataQualityGood(ctx context.Context, data *DataProcessingContext) bool {
 
 // Merge function for data processing results
 func mergeDataProcessingResults(ctx context.Context, base *DataProcessingContext, results ...*DataProcessingContext) (*DataProcessingContext, error) {
-	var mu sync.Mutex
-
 	for _, result := range results {
-		mu.Lock()
 		// Merge processed data
 		base.ProcessedData = append(base.ProcessedData, result.ProcessedData...)
 
@@ -429,9 +425,7 @@ func mergeDataProcessingResults(ctx context.Context, base *DataProcessingContext
 		// Update metrics
 		base.Metrics.ProcessedCount += result.Metrics.ProcessedCount
 		base.Metrics.ErrorCount += result.Metrics.ErrorCount
-		mu.Unlock()
 	}
-
 	return base, nil
 }
 
@@ -441,7 +435,7 @@ func generateSampleData(count int) []DataRecord {
 	data := make([]DataRecord, count)
 	types := []string{"normal", "special", "premium", ""}
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		data[i] = DataRecord{
 			ID:    fmt.Sprintf("record-%d", i),
 			Value: (i * 37) % 1000, // Pseudo-random values
@@ -453,6 +447,10 @@ func generateSampleData(count int) []DataRecord {
 }
 
 func exportResults(data *DataProcessingContext) error {
+	// check if results.json already exists
+	if _, err := os.Stat("results.json"); err == nil {
+		return fmt.Errorf("results.json already exists, please remove it before exporting")
+	}
 	file, err := os.Create("results.json")
 	if err != nil {
 		return err
