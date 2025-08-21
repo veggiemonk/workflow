@@ -56,7 +56,10 @@ docs: ## Generate documentation
 
 install-tools: ## Install development tools
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-	go install golang.org/x/tools/cmd/goimports@latest
+	go install github.com/stacklok/frizbee@latest
+
+pin-actions: ## pin github actions
+	go tool github.com/stacklok/frizbee actions .github/workflows
 
 ci: tidy fmt lint test ## Run CI pipeline locally
 
