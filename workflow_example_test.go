@@ -9,6 +9,23 @@ import (
 	wf "github.com/veggiemonk/workflow"
 )
 
+type Result struct {
+	Err      error
+	Messages []string
+	State    State
+}
+type State struct{ Counter int }
+
+func (r *Result) String() string {
+	if r == nil {
+		return "none"
+	}
+	if r.Err != nil {
+		return fmt.Sprintf("Result{State: %#v, Messages: %v, Err: %v}", r.State, r.Messages, r.Err)
+	}
+	return fmt.Sprintf("Result{State: %#v, Messages: %v}", r.State, r.Messages)
+}
+
 // Example demonstrates how to use the workflow package to define and run a pipeline.
 func Example() {
 	// create middleware to log before and after every steps.
@@ -98,14 +115,9 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 			Next: next,
 			Fn: func(ctx context.Context, res *T) (*T, error) {
 				name := wf.Name(next)
-				if name != "MidFunc" {
-					fmt.Fprintf(l, "start: name=%s\n", name)
-				}
+				fmt.Fprintf(l, "start: name=%s\n", name)
 				resp, err := next.Run(ctx, res)
-
-				if name != "MidFunc" {
-					fmt.Fprintf(l, "done: name=%s\n", name)
-				}
+				fmt.Fprintf(l, "done: name=%s\n", name)
 				return resp, err
 			},
 		}

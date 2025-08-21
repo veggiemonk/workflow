@@ -21,23 +21,6 @@ import (
 
 var lf = flag.Bool("log", false, "show the logs")
 
-type Result struct {
-	Err      error
-	Messages []string
-	State    State
-}
-type State struct{ Counter int }
-
-func (r *Result) String() string {
-	if r == nil {
-		return "none"
-	}
-	if r.Err != nil {
-		return fmt.Sprintf("Result{State: %#v, Messages: %v, Err: %v}", r.State, r.Messages, r.Err)
-	}
-	return fmt.Sprintf("Result{State: %#v, Messages: %v}", r.State, r.Messages)
-}
-
 func TestEmptyPipeline(t *testing.T) {
 	p := wf.NewPipeline[Result]()
 	_, err := p.Run(context.Background(), &Result{})

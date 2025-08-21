@@ -43,15 +43,12 @@ func LoggerMiddleware[T any](l *slog.Logger) Middleware[T] {
 			Fn: func(ctx context.Context, res *T) (*T, error) {
 				start := time.Now()
 				name := Name(next)
-				if name != "MidFunc" {
-					l.Info("start", "Type", name, "STEP", next)
-				}
+				l.Info("start", "Type", name)
 				resp, err := next.Run(ctx, res)
-
-				if name != "MidFunc" {
-					l.Info("done", "Type", name, "duration", time.Since(start),
-						"Result", fmt.Sprintf("%v", resp))
-				}
+				l.Info("done",
+					"Type", name,
+					"duration", time.Since(start),
+					"Result", fmt.Sprintf("%v", resp))
 				return resp, err
 			},
 		}
@@ -149,11 +146,7 @@ func RetryMiddleware[T any](config RetryConfig) Middleware[T] {
 
 						// Calculate next delay with exponential backoff
 						nextDelay := time.Duration(float64(delay) * config.BackoffMultiplier)
-						if nextDelay > config.MaxDelay {
-							delay = config.MaxDelay
-						} else {
-							delay = nextDelay
-						}
+						delay = min(nextDelay, config.MaxDelay)
 					}
 				}
 

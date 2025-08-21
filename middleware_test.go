@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -502,3 +504,204 @@ func TestMiddlewareInPipeline(t *testing.T) {
 		t.Errorf("expected step1 to be called 2 times but was called %d times", step1.GetAttempts())
 	}
 }
+
+func TestLoggerMiddleware(t *testing.T) {
+	tests := []struct {
+		name        string
+		step        Step[TestData]
+		expectError bool
+		expectLogs  []string // Expected log messages to contain these substrings
+	}{
+		{
+			name: "successful step execution",
+			step: StepFunc[TestData](func(_ context.Context, req *TestData) (*TestData, error) {
+				return &TestData{
+					Value:   req.Value + "_logged",
+					Counter: req.Counter + 1,
+				}, nil
+			}),
+			expectError: false,
+			expectLogs:  []string{"start", "done", "StepFunc", "duration"},
+		},
+		{
+			name: "failing step execution",
+			step: StepFunc[TestData](func(_ context.Context, req *TestData) (*TestData, error) {
+				return nil, errors.New("test error")
+			}),
+			expectError: true,
+			expectLogs:  []string{"start", "done", "StepFunc", "duration"},
+		},
+		{
+			name:        "step with custom name",
+			step:        &failingStep{failCount: 0},
+			expectError: false,
+			expectLogs:  []string{"start", "done", "failingStep", "duration"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a custom logger that captures log output
+			var logOutput []string
+			logger := slog.New(slog.NewTextHandler(&logWriter{
+				write: func(p []byte) (int, error) {
+					logOutput = append(logOutput, string(p))
+					return len(p), nil
+				},
+			}, &slog.HandlerOptions{
+				Level: slog.LevelInfo,
+				ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+					if a.Key == "duration" {
+						a.Value = slog.StringValue("1s")
+					}
+					if a.Key == slog.TimeKey {
+						return slog.Attr{}
+					}
+					return a
+				},
+			}))
+
+			middleware := LoggerMiddleware[TestData](logger)
+			wrappedStep := middleware(tt.step)
+
+			ctx := context.Background()
+			req := &TestData{Value: "test", Counter: 0}
+
+			resp, err := wrappedStep.Run(ctx, req)
+
+			// Check error expectation
+			if tt.expectError && err == nil {
+				t.Error("expected error but got success")
+			} else if !tt.expectError && err != nil {
+				t.Errorf("expected success but got error: %v", err)
+			}
+
+			// Check response for successful cases
+			if !tt.expectError {
+				if resp == nil {
+					t.Error("expected response but got nil")
+				} else if tt.step.String() == "StepFunc" {
+					// For the successful StepFunc test
+					expectedValue := "test_logged"
+					if resp.Value != expectedValue {
+						t.Errorf("expected value '%s' but got '%s'", expectedValue, resp.Value)
+					}
+					if resp.Counter != 1 {
+						t.Errorf("expected counter=1 but got %d", resp.Counter)
+					}
+				}
+			}
+
+			// Verify log messages contain expected content
+			for _, expectedLog := range tt.expectLogs {
+				found := false
+				for _, log := range logOutput {
+					if strings.Contains(log, expectedLog) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("expected log to contain '%s' but logs were: %v", expectedLog, logOutput)
+				}
+			}
+
+			// Verify we have both start and done logs
+			hasStart := false
+			hasDone := false
+			for _, log := range logOutput {
+				if strings.Contains(log, "start") {
+					hasStart = true
+				}
+				if strings.Contains(log, "done") {
+					hasDone = true
+				}
+			}
+
+			if !hasStart {
+				t.Error("expected start log message")
+			}
+			if !hasDone {
+				t.Error("expected done log message")
+			}
+		})
+	}
+}
+
+func TestUUIDMiddleware(t *testing.T) {
+	step := StepFunc[TestData](func(ctx context.Context, req *TestData) (*TestData, error) {
+		// Verify UUID is present in context
+		uuid, ok := ctx.Value(StepUUIDKey).(string)
+		if !ok || uuid == "" {
+			return nil, errors.New("UUID not found in context")
+		}
+
+		// Return the UUID in the response for verification
+		return &TestData{
+			Value:   req.Value + "_" + uuid[:8], // Use first 8 chars of UUID
+			Counter: req.Counter + 1,
+		}, nil
+	})
+
+	middleware := UUIDMiddleware[TestData]()
+	wrappedStep := middleware(step)
+
+	ctx := context.Background()
+	req := &TestData{Value: "test", Counter: 0}
+
+	resp, err := wrappedStep.Run(ctx, req)
+	if err != nil {
+		t.Errorf("expected success but got error: %v", err)
+	}
+
+	if resp == nil {
+		t.Error("expected response but got nil")
+		return
+	}
+
+	// Verify the UUID was added to the value
+	if len(resp.Value) != len("test_")+8 { // "test_" + 8 char UUID prefix
+		t.Errorf("expected value to contain UUID prefix, got: %s", resp.Value)
+	}
+
+	if resp.Counter != 1 {
+		t.Errorf("expected counter=1 but got %d", resp.Counter)
+	}
+
+	// Test that each execution gets a different UUID
+	resp2, err := wrappedStep.Run(ctx, req)
+	if err != nil {
+		t.Errorf("expected success on second run but got error: %v", err)
+	}
+
+	if resp2 != nil && resp.Value == resp2.Value {
+		t.Error("expected different UUIDs for each execution")
+	}
+}
+
+// Helper types and functions for logger testing
+type logWriter struct {
+	write func([]byte) (int, error)
+}
+
+func (w *logWriter) Write(p []byte) (int, error) {
+	return w.write(p)
+}
+
+// // Helper function to check if a string contains a substring
+// func contains(s, substr string) bool {
+// 	return len(s) >= len(substr) && (s == substr ||
+// 		(len(s) > len(substr) &&
+// 			(s[:len(substr)] == substr ||
+// 				s[len(s)-len(substr):] == substr ||
+// 				containsInMiddle(s, substr))))
+// }
+
+// func containsInMiddle(s, substr string) bool {
+// 	for i := 0; i <= len(s)-len(substr); i++ {
+// 		if s[i:i+len(substr)] == substr {
+// 			return true
+// 		}
+// 	}
+// 	return false
+// }

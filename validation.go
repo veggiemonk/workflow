@@ -60,7 +60,8 @@ type DeepCopyInterface[T any] interface {
 	DeepCopy() *T
 }
 
-// SafeCopy provides safe copying for parallel execution
+// SafeCopy provides safe copying for parallel execution.
+// It will create a deep copy of the original data if the type implements [DeepCopyInterface].
 func SafeCopy[T any](original *T) *T {
 	if original == nil {
 		return nil
