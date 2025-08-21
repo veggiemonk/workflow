@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] - 2025-08-21
+
+### Added
+- Comprehensive unit tests for all core middleware in `middleware_test.go`:
+  - RetryMiddleware: success, failure, custom retry logic, exponential backoff.
+  - TimeoutMiddleware: step completion, timeout, instant execution.
+  - CircuitBreakerMiddleware: open/close logic, custom tripping, recovery.
+  - LoggerMiddleware: log output for both success and failure, custom logger injection.
+  - UUIDMiddleware: unique UUID per execution and context propagation.
+- Helper types for test logging and step simulation.
+- Middleware composition and integration tests with Pipeline abstraction.
+- Tests for default config values for retry and circuit breaker.
+- Ensured all middleware are context-aware and type-safe, following project conventions.
+
 ## [v0.2.0] - 2025-08-19
 
 ### Added
@@ -45,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Debuggable**: Tree visualization of pipeline structure
 - **Concurrent execution**: Safe parallel processing with error groups
 
-[Unreleased]: https://github.com/veggiemonk/workflow/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/veggiemonk/workflow/compare/v0.3.0...HEAD
+[v0.3.0]: https://github.com/veggiemonk/workflow/compare/v0.2.0...v0.3.0
 [v0.2.0]: https://github.com/veggiemonk/workflow/compare/v0.1.0...v0.2.0
 [v0.1.0]: https://github.com/veggiemonk/workflow/releases/tag/v0.1.0
