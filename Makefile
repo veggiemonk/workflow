@@ -44,6 +44,7 @@ clean: ## Clean build artifacts
 fmt: ## Format code
 	go fmt ./...
 	goimports -w .
+	gofmt -s -w .
 
 check: lint test ## Run all checks (lint + test)
 
