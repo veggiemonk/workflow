@@ -2,7 +2,7 @@
 
 A tiny, flexible, and extensible workflow engine in Go, designed to be generic and suitable for various applications, including CI/CD pipelines.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/veggiemonk/workflow.svg)](https://pkg.go.dev/github.com/veggiemonk/workflow)
+[![Go Reference](https://pkg.go.dev/badge/github.com/veggiemonk/workflow.svg)](https://pkg.go.dev/github.com/veggiemonk/workflow) [![Go Report Card](https://goreportcard.com/badge/github.com/veggiemonk/workflow)](https://goreportcard.com/report/github.com/veggiemonk/workflow)
 
 ## Features
 
