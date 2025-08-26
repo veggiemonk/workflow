@@ -1,6 +1,6 @@
 # Makefile for workflow project
 
-.PHONY: test lint build examples clean help
+.PHONY: test lint build examples clean help docs
 
 # Default target
 help: ## Show this help message
@@ -49,15 +49,18 @@ fmt: ## Format code
 check: lint test ## Run all checks (lint + test)
 
 docs: ## Generate documentation
+	gomarkdoc --output docs/llms.md .
 	@echo "Documentation available at:"
 	@echo "  - README.md (main documentation)"
 	@echo "  - docs/architecture.md (architecture overview)"
 	@echo "  - docs/best-practices.md (best practices guide)"
 	@echo "  - examples/ (working examples)"
+	@echo "  - docs/llms.md (generated API documentation for LLMs)"
 
 install-tools: ## Install development tools
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install github.com/stacklok/frizbee@latest
+	go install github.com/princjef/gomarkdoc/cmd/gomarkdoc@latest
 
 pin-actions: ## pin github actions
 	go tool github.com/stacklok/frizbee actions .github/workflows
