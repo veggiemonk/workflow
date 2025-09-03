@@ -68,42 +68,42 @@ func main() {
 	p := wf.NewPipeline(mid)
 
 	// Define the steps of the pipeline.
-	p.Steps = []wf.Step[Result]{
+	p.Tasks = []*wf.Task[Result]{
 		// Step 1: A simple function that modifies the result.
-		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+		wf.NewTask("start", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "starting pipeline")
 			return r, nil
-		}),
+		})),
 		// Step 2: A series of steps that run sequentially.
-		wf.Sequential(nil,
+		wf.NewTask("series", wf.Sequential(nil,
 			// Step 2a: A simple function.
-			wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+			wf.NewTask("in_series", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "in series")
 				return r, nil
-			}),
+			})),
 			// Step 2b: A parallel execution of steps.
-			wf.Parallel(nil,
+			wf.NewTask("parallel", wf.Parallel(nil, "merge",
 				// The merge function combines the results of the parallel steps.
 				wf.Merge[Result],
 				// Parallel task 1.
-				wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+				wf.NewTask("p1", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 					r.State.Counter++
 					r.Messages = append(r.Messages, "parallel task 1")
 					return r, nil
-				}),
+				})),
 				// Parallel task 2.
-				wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+				wf.NewTask("p2", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 					r.State.Counter++
 					r.Messages = append(r.Messages, "parallel task 2")
 					return r, nil
-				}),
-			),
-		),
+				})),
+			)),
+		)),
 		// Step 3: A final step.
-		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+		wf.NewTask("finish", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "pipeline finished")
 			return r, nil
-		}),
+		})),
 	}
 
 	// Run the pipeline.
@@ -124,8 +124,8 @@ func main() {
 }
 
 func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
-	return func(next wf.Step[T]) wf.Step[T] {
-		return &wf.MidFunc[T]{
+	return func(next *wf.Task[T]) *wf.Task[T] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[T]{
 			Name: "Logger",
 			Next: next,
 			Fn: func(ctx context.Context, res *T) (*T, error) {
@@ -135,7 +135,7 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 				fmt.Fprintf(l, "done: name=%s\n", name)
 				return resp, err
 			},
-		}
+		})
 	}
 }
 ```
@@ -171,6 +171,10 @@ done: name=StepFunc[Result]
 - [func Name\[T any\]\(s Step\[T\]\) string](<#Name>)
 - [func SafeCopy\[T any\]\(original \*T\) \*T](<#SafeCopy>)
 - [func SafeRun\[T any\]\(ctx context.Context, step Step\[T\], data \*T\) \(\*T, error\)](<#SafeRun>)
+- [type Builder](<#Builder>)
+  - [func NewBuilder\[T any\]\(registry \*Registry\[T\]\) \*Builder\[T\]](<#NewBuilder>)
+  - [func \(b \*Builder\[T\]\) BuildFromFile\(path string\) \(\*Pipeline\[T\], error\)](<#Builder[T].BuildFromFile>)
+  - [func \(b \*Builder\[T\]\) BuildFromSpec\(spec \*PipelineSpec\) \(\*Pipeline\[T\], error\)](<#Builder[T].BuildFromSpec>)
 - [type CircuitBreakerConfig](<#CircuitBreakerConfig>)
   - [func DefaultCircuitBreakerConfig\(\) CircuitBreakerConfig](<#DefaultCircuitBreakerConfig>)
 - [type CircuitBreakerState](<#CircuitBreakerState>)
@@ -189,22 +193,41 @@ done: name=StepFunc[Result]
 - [type Pipeline](<#Pipeline>)
   - [func NewPipeline\[T any\]\(mid ...Middleware\[T\]\) \*Pipeline\[T\]](<#NewPipeline>)
   - [func \(p \*Pipeline\[T\]\) Run\(ctx context.Context, req \*T\) \(\*T, error\)](<#Pipeline[T].Run>)
+  - [func \(p \*Pipeline\[T\]\) Save\(path string\) error](<#Pipeline[T].Save>)
   - [func \(p \*Pipeline\[T\]\) String\(\) string](<#Pipeline[T].String>)
+  - [func \(p \*Pipeline\[T\]\) ToSpec\(\) \*PipelineSpec](<#Pipeline[T].ToSpec>)
+- [type PipelineSpec](<#PipelineSpec>)
+- [type Registry](<#Registry>)
+  - [func NewRegistry\[T any\]\(\) \*Registry\[T\]](<#NewRegistry>)
+  - [func \(r \*Registry\[T\]\) Get\(name string\) \(\*Task\[T\], error\)](<#Registry[T].Get>)
+  - [func \(r \*Registry\[T\]\) GetMergeRequest\(name string\) \(MergeRequest\[T\], error\)](<#Registry[T].GetMergeRequest>)
+  - [func \(r \*Registry\[T\]\) GetSelector\(name string\) \(Selector\[T\], error\)](<#Registry[T].GetSelector>)
+  - [func \(r \*Registry\[T\]\) Register\(task \*Task\[T\]\)](<#Registry[T].Register>)
+  - [func \(r \*Registry\[T\]\) RegisterMergeRequest\(name string, merge MergeRequest\[T\]\)](<#Registry[T].RegisterMergeRequest>)
+  - [func \(r \*Registry\[T\]\) RegisterSelector\(name string, selector Selector\[T\]\)](<#Registry[T].RegisterSelector>)
 - [type RetryConfig](<#RetryConfig>)
   - [func DefaultRetryConfig\(\) RetryConfig](<#DefaultRetryConfig>)
 - [type Selector](<#Selector>)
 - [type Step](<#Step>)
-  - [func Select\[T any\]\(mid \[\]Middleware\[T\], s Selector\[T\], ifStep, elseStep Step\[T\]\) Step\[T\]](<#Select>)
+  - [func Select\[T any\]\(mid \[\]Middleware\[T\], name string, s Selector\[T\], ifTask, elseTask \*Task\[T\]\) Step\[T\]](<#Select>)
 - [type StepFunc](<#StepFunc>)
   - [func \(f StepFunc\[T\]\) Run\(ctx context.Context, res \*T\) \(\*T, error\)](<#StepFunc[T].Run>)
   - [func \(f StepFunc\[T\]\) String\(\) string](<#StepFunc[T].String>)
 - [type StepValidator](<#StepValidator>)
   - [func \(v StepValidator\[T\]\) ValidatePipeline\(pipeline \*Pipeline\[T\]\) error](<#StepValidator[T].ValidatePipeline>)
   - [func \(v StepValidator\[T\]\) ValidateStep\(step Step\[T\]\) error](<#StepValidator[T].ValidateStep>)
+- [type Task](<#Task>)
+  - [func NewTask\[T any\]\(name string, step Step\[T\]\) \*Task\[T\]](<#NewTask>)
+  - [func \(t \*Task\[T\]\) Name\(\) string](<#Task[T].Name>)
+  - [func \(t \*Task\[T\]\) Run\(ctx context.Context, req \*T\) \(\*T, error\)](<#Task[T].Run>)
+  - [func \(t \*Task\[T\]\) String\(\) string](<#Task[T].String>)
+  - [func \(t \*Task\[T\]\) ToSpec\(\) \*TaskSpec](<#Task[T].ToSpec>)
+- [type TaskSpec](<#TaskSpec>)
+- [type ToSpecer](<#ToSpecer>)
 
 
 <a name="CapturePanic"></a>
-## func [CapturePanic](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L410>)
+## func [CapturePanic](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L485>)
 
 ```go
 func CapturePanic(ctx context.Context)
@@ -213,7 +236,7 @@ func CapturePanic(ctx context.Context)
 CapturePanic recovers from a panic and logs the error with stack trace.
 
 <a name="Merge"></a>
-## func [Merge](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L405>)
+## func [Merge](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L480>)
 
 ```go
 func Merge[T any](ctx context.Context, req *T, responses ...*T) (*T, error)
@@ -222,7 +245,7 @@ func Merge[T any](ctx context.Context, req *T, responses ...*T) (*T, error)
 Merge is a merge request that merges the results of multiple steps into a single result using the mergo library.
 
 <a name="Name"></a>
-## func [Name](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L26>)
+## func [Name](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L28>)
 
 ```go
 func Name[T any](s Step[T]) string
@@ -247,6 +270,44 @@ func SafeRun[T any](ctx context.Context, step Step[T], data *T) (*T, error)
 ```
 
 SafeRun provides a safe way to run steps with validation
+
+<a name="Builder"></a>
+## type [Builder](<https://github.com/veggiemonk/workflow/blob/main/builder.go#L9-L11>)
+
+Builder builds a Pipeline from a specification.
+
+```go
+type Builder[T any] struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewBuilder"></a>
+### func [NewBuilder](<https://github.com/veggiemonk/workflow/blob/main/builder.go#L14>)
+
+```go
+func NewBuilder[T any](registry *Registry[T]) *Builder[T]
+```
+
+NewBuilder creates a new Builder.
+
+<a name="Builder[T].BuildFromFile"></a>
+### func \(\*Builder\[T\]\) [BuildFromFile](<https://github.com/veggiemonk/workflow/blob/main/builder.go#L87>)
+
+```go
+func (b *Builder[T]) BuildFromFile(path string) (*Pipeline[T], error)
+```
+
+BuildFromFile constructs a Pipeline from a JSON file.
+
+<a name="Builder[T].BuildFromSpec"></a>
+### func \(\*Builder\[T\]\) [BuildFromSpec](<https://github.com/veggiemonk/workflow/blob/main/builder.go#L21>)
+
+```go
+func (b *Builder[T]) BuildFromSpec(spec *PipelineSpec) (*Pipeline[T], error)
+```
+
+BuildFromSpec constructs a Pipeline from a PipelineSpec.
 
 <a name="CircuitBreakerConfig"></a>
 ## type [CircuitBreakerConfig](<https://github.com/veggiemonk/workflow/blob/main/middleware.go#L211-L223>)
@@ -312,7 +373,7 @@ type DeepCopyInterface[T any] interface {
 ```
 
 <a name="MergeRequest"></a>
-## type [MergeRequest](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L337>)
+## type [MergeRequest](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L411>)
 
 MergeRequest is a function that merges the results of multiple steps into a single result.
 
@@ -321,7 +382,7 @@ type MergeRequest[T any] func(context.Context, *T, ...*T) (*T, error)
 ```
 
 <a name="MergeTransform"></a>
-### func [MergeTransform](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L385>)
+### func [MergeTransform](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L460>)
 
 ```go
 func MergeTransform[T any](opts ...func(*mergo.Config)) MergeRequest[T]
@@ -330,7 +391,7 @@ func MergeTransform[T any](opts ...func(*mergo.Config)) MergeRequest[T]
 MergeTransform is a merge request that merges the results of multiple steps into a single result using the mergo library.
 
 <a name="MidFunc"></a>
-## type [MidFunc](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L118-L122>)
+## type [MidFunc](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L149-L153>)
 
 MidFunc is an adapter to allow the use of ordinary functions as middleware.
 
@@ -338,12 +399,12 @@ MidFunc is an adapter to allow the use of ordinary functions as middleware.
 type MidFunc[T any] struct {
     Name string
     Fn   func(context.Context, *T) (*T, error)
-    Next Step[T]
+    Next *Task[T]
 }
 ```
 
 <a name="MidFunc[T].Run"></a>
-### func \(\*MidFunc\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L125>)
+### func \(\*MidFunc\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L156>)
 
 ```go
 func (m *MidFunc[T]) Run(ctx context.Context, req *T) (*T, error)
@@ -352,7 +413,7 @@ func (m *MidFunc[T]) Run(ctx context.Context, req *T) (*T, error)
 Run executes the function.
 
 <a name="MidFunc[T].String"></a>
-### func \(\*MidFunc\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L130>)
+### func \(\*MidFunc\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L161>)
 
 ```go
 func (m *MidFunc[T]) String() string
@@ -361,12 +422,12 @@ func (m *MidFunc[T]) String() string
 String returns the name of the function.
 
 <a name="Middleware"></a>
-## type [Middleware](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L137>)
+## type [Middleware](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L168>)
 
 Middleware is a function that wraps a step to add functionality, such as logging or error handling.
 
 ```go
-type Middleware[T any] func(s Step[T]) Step[T]
+type Middleware[T any] func(s *Task[T]) *Task[T]
 ```
 
 <a name="CircuitBreakerMiddleware"></a>
@@ -415,19 +476,19 @@ func UUIDMiddleware[T any]() Middleware[T]
 UUIDMiddleware returns a middleware that assigns a unique UUID to each step execution. The UUID is stored in the context with the key StepUUIDKey and can be retrieved using ctx.Value\(StepUUIDKey\).\(string\).
 
 <a name="Pipeline"></a>
-## type [Pipeline](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L37-L40>)
+## type [Pipeline](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L47-L50>)
 
-Pipeline is a step that executes a series of other steps in sequential order. It can also have middleware that is applied to each step in the pipeline.
+Pipeline is a step that executes a series of other tasks in sequential order. It can also have middleware that is applied to each task in the pipeline.
 
 ```go
 type Pipeline[T any] struct {
-    Steps      []Step[T]
+    Tasks      []*Task[T]
     Middleware []Middleware[T]
 }
 ```
 
 <a name="NewPipeline"></a>
-### func [NewPipeline](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L93>)
+### func [NewPipeline](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L124>)
 
 ```go
 func NewPipeline[T any](mid ...Middleware[T]) *Pipeline[T]
@@ -436,7 +497,7 @@ func NewPipeline[T any](mid ...Middleware[T]) *Pipeline[T]
 NewPipeline creates a new pipeline with the given middleware.
 
 <a name="Pipeline[T].Run"></a>
-### func \(\*Pipeline\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L43>)
+### func \(\*Pipeline\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L53>)
 
 ```go
 func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error)
@@ -444,14 +505,117 @@ func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error)
 
 Run executes the pipeline.
 
+<a name="Pipeline[T].Save"></a>
+### func \(\*Pipeline\[T\]\) [Save](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L114>)
+
+```go
+func (p *Pipeline[T]) Save(path string) error
+```
+
+Save saves the pipeline to a file.
+
 <a name="Pipeline[T].String"></a>
-### func \(\*Pipeline\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L59>)
+### func \(\*Pipeline\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L69>)
 
 ```go
 func (p *Pipeline[T]) String() string
 ```
 
 
+
+<a name="Pipeline[T].ToSpec"></a>
+### func \(\*Pipeline\[T\]\) [ToSpec](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L103>)
+
+```go
+func (p *Pipeline[T]) ToSpec() *PipelineSpec
+```
+
+ToSpec returns the serializable representation of the Pipeline.
+
+<a name="PipelineSpec"></a>
+## type [PipelineSpec](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L41-L43>)
+
+PipelineSpec is the serializable representation of a Pipeline.
+
+```go
+type PipelineSpec struct {
+    Tasks []*TaskSpec `json:"tasks"`
+}
+```
+
+<a name="Registry"></a>
+## type [Registry](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L8-L12>)
+
+Registry is a repository for named Tasks, Selectors, and MergeRequests.
+
+```go
+type Registry[T any] struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewRegistry"></a>
+### func [NewRegistry](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L15>)
+
+```go
+func NewRegistry[T any]() *Registry[T]
+```
+
+NewRegistry creates a new Registry.
+
+<a name="Registry[T].Get"></a>
+### func \(\*Registry\[T\]\) [Get](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L29>)
+
+```go
+func (r *Registry[T]) Get(name string) (*Task[T], error)
+```
+
+Get retrieves a Task from the Registry by name.
+
+<a name="Registry[T].GetMergeRequest"></a>
+### func \(\*Registry\[T\]\) [GetMergeRequest](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L57>)
+
+```go
+func (r *Registry[T]) GetMergeRequest(name string) (MergeRequest[T], error)
+```
+
+GetMergeRequest retrieves a MergeRequest from the Registry by name.
+
+<a name="Registry[T].GetSelector"></a>
+### func \(\*Registry\[T\]\) [GetSelector](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L43>)
+
+```go
+func (r *Registry[T]) GetSelector(name string) (Selector[T], error)
+```
+
+GetSelector retrieves a Selector from the Registry by name.
+
+<a name="Registry[T].Register"></a>
+### func \(\*Registry\[T\]\) [Register](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L24>)
+
+```go
+func (r *Registry[T]) Register(task *Task[T])
+```
+
+Register adds a Task to the Registry.
+
+<a name="Registry[T].RegisterMergeRequest"></a>
+### func \(\*Registry\[T\]\) [RegisterMergeRequest](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L52>)
+
+```go
+func (r *Registry[T]) RegisterMergeRequest(name string, merge MergeRequest[T])
+```
+
+RegisterMergeRequest adds a MergeRequest to the Registry.
+
+<a name="Registry[T].RegisterSelector"></a>
+### func \(\*Registry\[T\]\) [RegisterSelector](<https://github.com/veggiemonk/workflow/blob/main/registry.go#L38>)
+
+```go
+func (r *Registry[T]) RegisterSelector(name string, selector Selector[T])
+```
+
+RegisterSelector adds a Selector to the Registry.
 
 <a name="RetryConfig"></a>
 ## type [RetryConfig](<https://github.com/veggiemonk/workflow/blob/main/middleware.go#L59-L79>)
@@ -492,7 +656,7 @@ func DefaultRetryConfig() RetryConfig
 DefaultRetryConfig returns a retry configuration with sensible defaults.
 
 <a name="Selector"></a>
-## type [Selector](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L143>)
+## type [Selector](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L174>)
 
 Selector is a function that returns true or false based on the context and the request. Selector is a function type used to select steps conditionally in a workflow.
 
@@ -501,7 +665,7 @@ type Selector[T any] func(context.Context, *T) bool
 ```
 
 <a name="Step"></a>
-## type [Step](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L20-L23>)
+## type [Step](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L22-L25>)
 
 Step is the basic unit of work in a workflow. It is an interface with a single method, Run, that takes a context and a generic request type T and returns a response of the same type T and an error.
 
@@ -513,16 +677,16 @@ type Step[T any] interface {
 ```
 
 <a name="Select"></a>
-### func [Select](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L194>)
+### func [Select](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L226>)
 
 ```go
-func Select[T any](mid []Middleware[T], s Selector[T], ifStep, elseStep Step[T]) Step[T]
+func Select[T any](mid []Middleware[T], name string, s Selector[T], ifTask, elseTask *Task[T]) Step[T]
 ```
 
 Select creates a new selector step.
 
 <a name="StepFunc"></a>
-## type [StepFunc](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L102>)
+## type [StepFunc](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L133>)
 
 StepFunc is a function type for a unit of work in the workflow. It is an adapter to allow the use of ordinary functions as workflow steps.
 
@@ -531,7 +695,7 @@ type StepFunc[T any] func(context.Context, *T) (*T, error)
 ```
 
 <a name="StepFunc[T].Run"></a>
-### func \(StepFunc\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L105>)
+### func \(StepFunc\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L136>)
 
 ```go
 func (f StepFunc[T]) Run(ctx context.Context, res *T) (*T, error)
@@ -540,7 +704,7 @@ func (f StepFunc[T]) Run(ctx context.Context, res *T) (*T, error)
 Run executes the function that implements the Step interface.
 
 <a name="StepFunc[T].String"></a>
-### func \(StepFunc\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L110>)
+### func \(StepFunc\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/workflow.go#L141>)
 
 ```go
 func (f StepFunc[T]) String() string
@@ -574,5 +738,89 @@ func (v StepValidator[T]) ValidateStep(step Step[T]) error
 ```
 
 ValidateStep validates a step for common issues
+
+<a name="Task"></a>
+## type [Task](<https://github.com/veggiemonk/workflow/blob/main/task.go#L19-L22>)
+
+Task is a named Step.
+
+```go
+type Task[T any] struct {
+    // contains filtered or unexported fields
+}
+```
+
+<a name="NewTask"></a>
+### func [NewTask](<https://github.com/veggiemonk/workflow/blob/main/task.go#L25>)
+
+```go
+func NewTask[T any](name string, step Step[T]) *Task[T]
+```
+
+NewTask creates a new Task.
+
+<a name="Task[T].Name"></a>
+### func \(\*Task\[T\]\) [Name](<https://github.com/veggiemonk/workflow/blob/main/task.go#L33>)
+
+```go
+func (t *Task[T]) Name() string
+```
+
+Name returns the name of the task.
+
+<a name="Task[T].Run"></a>
+### func \(\*Task\[T\]\) [Run](<https://github.com/veggiemonk/workflow/blob/main/task.go#L38>)
+
+```go
+func (t *Task[T]) Run(ctx context.Context, req *T) (*T, error)
+```
+
+Run executes the task's step.
+
+<a name="Task[T].String"></a>
+### func \(\*Task\[T\]\) [String](<https://github.com/veggiemonk/workflow/blob/main/task.go#L43>)
+
+```go
+func (t *Task[T]) String() string
+```
+
+String returns the string representation of the task's step.
+
+<a name="Task[T].ToSpec"></a>
+### func \(\*Task\[T\]\) [ToSpec](<https://github.com/veggiemonk/workflow/blob/main/task.go#L53>)
+
+```go
+func (t *Task[T]) ToSpec() *TaskSpec
+```
+
+ToSpec returns the serializable representation of the Task.
+
+<a name="TaskSpec"></a>
+## type [TaskSpec](<https://github.com/veggiemonk/workflow/blob/main/task.go#L8-L16>)
+
+TaskSpec is the serializable representation of a Task.
+
+```go
+type TaskSpec struct {
+    Name     string      `json:"name"`
+    Type     string      `json:"type,omitempty"`
+    Tasks    []*TaskSpec `json:"tasks,omitempty"`
+    IfTask   *TaskSpec   `json:"if_task,omitempty"`
+    ElseTask *TaskSpec   `json:"else_task,omitempty"`
+    Selector string      `json:"selector,omitempty"`
+    Merge    string      `json:"merge,omitempty"`
+}
+```
+
+<a name="ToSpecer"></a>
+## type [ToSpecer](<https://github.com/veggiemonk/workflow/blob/main/task.go#L48-L50>)
+
+ToSpecer is an interface for types that can be converted to a TaskSpec.
+
+```go
+type ToSpecer interface {
+    ToSpec() *TaskSpec
+}
+```
 
 Generated by [gomarkdoc](<https://github.com/princjef/gomarkdoc>)

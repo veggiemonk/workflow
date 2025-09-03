@@ -158,7 +158,7 @@ func main() {
 	// Example 2: Order with retry scenarios
 	fmt.Println("Example 2: Processing order with potential retries")
 	// Process multiple orders to show retry behavior
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		orderID := fmt.Sprintf("ORD-00%d", i+2)
 		fmt.Printf("Processing order %s:\n", orderID)
 		runOrderProcessing(
@@ -188,11 +188,11 @@ func runOrderProcessing(orderID, customerID string, amount float64, middleware .
 	pipeline := wf.NewPipeline(middleware...)
 
 	// Add steps to pipeline
-	pipeline.Steps = []wf.Step[OrderData]{
-		&validateOrderStep{},
-		&paymentStep{},
-		&inventoryStep{},
-		&shippingStep{},
+	pipeline.Tasks = []*wf.Task[OrderData]{
+		wf.NewTask("validate", &validateOrderStep{}),
+		wf.NewTask("payment", &paymentStep{}),
+		wf.NewTask("inventory", &inventoryStep{}),
+		wf.NewTask("shipping", &shippingStep{}),
 	}
 
 	// Print pipeline structure
@@ -226,16 +226,16 @@ func runOrderProcessing(orderID, customerID string, amount float64, middleware .
 func runOrderProcessingWithCircuitBreaker(middleware ...wf.Middleware[OrderData]) {
 	// Create pipeline with circuit breaker
 	pipeline := wf.NewPipeline[OrderData](middleware...)
-	pipeline.Steps = []wf.Step[OrderData]{
-		&validateOrderStep{},
-		&paymentStep{}, // This step might trigger circuit breaker
-		&shippingStep{},
+	pipeline.Tasks = []*wf.Task[OrderData]{
+		wf.NewTask("validate", &validateOrderStep{}),
+		wf.NewTask("payment", &paymentStep{}), // This step might trigger circuit breaker
+		wf.NewTask("shipping", &shippingStep{}),
 	}
 
 	fmt.Println("Testing circuit breaker with multiple failing requests...")
 
 	// Process multiple orders to potentially trigger circuit breaker
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		order := &OrderData{
 			OrderID:    fmt.Sprintf("CB-ORD-%03d", i+1),
 			CustomerID: "CUST-CB",
@@ -268,10 +268,10 @@ func runOrderProcessingWithTimeout(middleware ...wf.Middleware[OrderData]) {
 	allMiddleware := append([]wf.Middleware[OrderData]{shortTimeoutMiddleware}, middleware...)
 
 	pipeline := wf.NewPipeline(allMiddleware...)
-	pipeline.Steps = []wf.Step[OrderData]{
-		&validateOrderStep{},
-		&inventoryStep{}, // This step takes 200ms, will timeout
-		&shippingStep{},
+	pipeline.Tasks = []*wf.Task[OrderData]{
+		wf.NewTask("validate", &validateOrderStep{}),
+		wf.NewTask("inventory", &inventoryStep{}), // This step takes 200ms, will timeout
+		wf.NewTask("shipping", &shippingStep{}),
 	}
 
 	order := &OrderData{

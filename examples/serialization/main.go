@@ -57,7 +57,7 @@ func main() {
 	fmt.Println("Pipeline saved to", filePath)
 
 	// 4. Build a new pipeline from the file
-	builder := workflow.NewBuilder[MyData](registry)
+	builder := workflow.NewBuilder(registry)
 	loadedPipeline, err := builder.BuildFromFile(filePath)
 	if err != nil {
 		log.Fatalf("Error building pipeline from file: %v", err)

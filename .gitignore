@@ -33,3 +33,5 @@ go.work.sum
 
 
 COMMIT_MESSAGE
+results.json
+pipeline.json

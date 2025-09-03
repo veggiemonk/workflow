@@ -36,42 +36,42 @@ func Example() {
 	p := wf.NewPipeline(mid)
 
 	// Define the steps of the pipeline.
-	p.Steps = []wf.Step[Result]{
+	p.Tasks = []*wf.Task[Result]{
 		// Step 1: A simple function that modifies the result.
-		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+		wf.NewTask("start", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "starting pipeline")
 			return r, nil
-		}),
+		})),
 		// Step 2: A series of steps that run sequentially.
-		wf.Sequential(nil,
+		wf.NewTask("series", wf.Sequential(nil,
 			// Step 2a: A simple function.
-			wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+			wf.NewTask("in_series", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "in series")
 				return r, nil
-			}),
+			})),
 			// Step 2b: A parallel execution of steps.
-			wf.Parallel(nil,
+			wf.NewTask("parallel", wf.Parallel(nil, "merge",
 				// The merge function combines the results of the parallel steps.
 				wf.Merge[Result],
 				// Parallel task 1.
-				wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+				wf.NewTask("p1", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 					r.State.Counter++
 					r.Messages = append(r.Messages, "parallel task 1")
 					return r, nil
-				}),
+				})),
 				// Parallel task 2.
-				wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+				wf.NewTask("p2", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 					r.State.Counter++
 					r.Messages = append(r.Messages, "parallel task 2")
 					return r, nil
-				}),
-			),
-		),
+				})),
+			)),
+		)),
 		// Step 3: A final step.
-		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+		wf.NewTask("finish", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "pipeline finished")
 			return r, nil
-		}),
+		})),
 	}
 
 	// Run the pipeline.
@@ -109,8 +109,8 @@ func Example() {
 }
 
 func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
-	return func(next wf.Step[T]) wf.Step[T] {
-		return &wf.MidFunc[T]{
+	return func(next *wf.Task[T]) *wf.Task[T] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[T]{
 			Name: "Logger",
 			Next: next,
 			Fn: func(ctx context.Context, res *T) (*T, error) {
@@ -120,6 +120,6 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 				fmt.Fprintf(l, "done: name=%s\n", name)
 				return resp, err
 			},
-		}
+		})
 	}
 }

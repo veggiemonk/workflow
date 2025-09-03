@@ -15,6 +15,7 @@ A tiny, flexible, and extensible workflow engine in Go, designed to be generic a
   - **Circuit Breaker Middleware**: Prevent cascading failures with automatic recovery
   - **Logger Middleware**: Structured logging for observability
   - **UUID Middleware**: Unique step execution tracking
+- **Serialization**: Save and load pipeline definitions to and from JSON.
 - **Generic**: Works with any data type, providing type safety.
 - **Context-aware**: Supports cancellation and deadlines through `context.Context`.
 - **Extensible**: Easily create your own custom steps by implementing the `Step` interface.
@@ -59,42 +60,42 @@ func main() {
 	p := wf.NewPipeline(mid)
 
 	// Define the steps of the pipeline.
-	p.Steps = []wf.Step[Result]{
+	p.Tasks = []*wf.Task[Result]{
 		// Step 1: A simple function that modifies the result.
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		wf.NewTask("start", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "starting pipeline")
 			return r, nil
-		}),
+		})),
 		// Step 2: A sequential of steps that run sequentially.
-		wf.Sequential(nil,
+		wf.NewTask("sequential", wf.Sequential(nil,
 			// Step 2a: A simple function.
-			wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			wf.NewTask("in-sequence", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "in sequence")
 				return r, nil
-			}),
+			})),
 			// Step 2b: A parallel execution of steps.
-			wf.Parallel(nil,
+			wf.NewTask("parallel", wf.Parallel(nil, "merge",
 				// The merge function combines the results of the parallel steps.
 				wf.Merge[Result],
 				// Parallel task 1.
-				wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+				wf.NewTask("p1", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 					r.State.Counter++
 					r.Messages = append(r.Messages, "parallel task 1")
 					return r, nil
-				}),
+				})),
 				// Parallel task 2.
-				wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+				wf.NewTask("p2", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 					r.State.Counter++
 					r.Messages = append(r.Messages, "parallel task 2")
 					return r, nil
-				}),
-			),
-		),
+				})),
+			)),
+		)),
 		// Step 3: A final step.
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		wf.NewTask("finish", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "pipeline finished")
 			return r, nil
-		}),
+		})),
 	}
 
 	// Run the pipeline.
@@ -111,8 +112,8 @@ func main() {
 }
 
 func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
-	return func(next wf.Step[T]) wf.Step[T] {
-		return &wf.MidFunc[T]{
+	return func(next *wf.Task[T]) *wf.Task[T] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[T]{
 			Name: "Logger",
 			Next: next,
 			Fn: func(ctx context.Context, res *T) (*T, error) {
@@ -122,7 +123,7 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 				fmt.Fprintf(l, "done: name=%s ", name)
 				return resp, err
 			},
-		}
+		})
 	}
 }
 ```
@@ -135,6 +136,8 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 - **`Parallel[T]`**: A step that executes a list of other steps in parallel and merges their results.
 - **`Select[T]`**: A step that executes one of two other steps based on a selector function.
 - **`Middleware[T]`**: A function that wraps a step to add functionality, such as logging or error handling.
+- **`Registry[T]`**: A repository for named tasks, selectors, and merge requests, used for deserialization.
+- **`Builder[T]`**: A tool to construct a pipeline from a serialized specification.
 
 ## Examples
 
@@ -144,6 +147,7 @@ Comprehensive examples are available in the [`examples/`](./examples/) directory
 - **[CI/CD](./examples/cicd/)**: Realistic CI/CD pipeline with parallel checks and conditional deployment
 - **[Advanced](./examples/advanced/)**: Sophisticated data processing with custom middleware and complex workflows
 - **[Middleware](./examples/middleware/)**: Comprehensive demonstration of retry, timeout, and circuit breaker middleware
+- **[Serialization](./examples/serialization/)**: Storing and loading pipeline definitions.
 
 Run examples:
 ```bash
@@ -158,6 +162,9 @@ cd examples/advanced && go run main.go
 
 # Middleware demonstration
 cd examples/middleware && go run main.go
+
+# Serialization example
+cd examples/serialization && go run main.go
 ```
 
 ## Documentation

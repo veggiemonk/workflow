@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fixed a series of compilation and runtime errors caused by a major refactoring.
+- **API Changes for `Parallel` and `Select`**: The `Parallel` and `Select` functions now accept a `name` parameter for better logging and identification. All call sites have been updated.
+- **Middleware Refactoring**: The `Middleware` type has been changed to operate on `*Task[T]` instead of `Step[T]`, providing more context to the middleware. All middleware implementations have been updated.
+- **Pipeline `Steps` to `Tasks`**: The `Steps` field in the `Pipeline` struct has been renamed to `Tasks`, and its type has been changed to `[]*Task[T]`. All usages have been updated.
+- **Logging Name Fix**: The `Name` function now correctly extracts the name of a step wrapped in a `Task`. The logging middlewares have been updated to use this function, fixing several failing tests.
+
 ## [v0.3.0] - 2025-08-21
 
 ### Added

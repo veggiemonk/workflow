@@ -39,12 +39,12 @@ func TestSelectorLogicFix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selector := wf.Select(nil,
+			selector := wf.Select(nil, "test-selector",
 				func(_ context.Context, data *TestData) bool {
 					return data.Value > 0
 				},
-				ifStep,
-				elseStep,
+				wf.NewTask("if", ifStep),
+				wf.NewTask("else", elseStep),
 			)
 
 			result, err := selector.Run(t.Context(), &TestData{Value: tt.conditionValue})
@@ -80,12 +80,19 @@ func TestSelectorWithNilSteps(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			selector := wf.Select(nil,
+			var ifTask, elseTask *wf.Task[TestData]
+			if tt.ifStep != nil {
+				ifTask = wf.NewTask("if", tt.ifStep)
+			}
+			if tt.elseStep != nil {
+				elseTask = wf.NewTask("else", tt.elseStep)
+			}
+			selector := wf.Select(nil, "test-selector",
 				func(_ context.Context, _ *TestData) bool {
 					return tt.condition
 				},
-				tt.ifStep,
-				tt.elseStep,
+				ifTask,
+				elseTask,
 			)
 
 			_, err := selector.Run(t.Context(), &TestData{Value: 1})
@@ -109,19 +116,19 @@ func TestPipelineErrorPropagation(t *testing.T) {
 	expectedErr := errors.New("step error")
 
 	pipeline := wf.NewPipeline[TestData]()
-	pipeline.Steps = []wf.Step[TestData]{
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+	pipeline.Tasks = []*wf.Task[TestData]{
+		wf.NewTask("step1", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step1")
 			return data, nil
-		}),
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		})),
+		wf.NewTask("step2", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step2")
 			return data, expectedErr // This should stop the pipeline
-		}),
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		})),
+		wf.NewTask("step3", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step3") // This should not execute
 			return data, nil
-		}),
+		})),
 	}
 
 	result, err := pipeline.Run(t.Context(), &TestData{})
@@ -154,7 +161,7 @@ func TestParallelExecutionWithErrors(t *testing.T) {
 		return nil, expectedErr
 	})
 
-	parallelStep := wf.Parallel(nil, wf.Merge[TestData], successStep, errorStep, successStep)
+	parallelStep := wf.Parallel(nil, "merge", wf.Merge[TestData], wf.NewTask("success1", successStep), wf.NewTask("error", errorStep), wf.NewTask("success2", successStep))
 
 	_, err := parallelStep.Run(t.Context(), &TestData{})
 
@@ -187,7 +194,7 @@ func TestContextCancellation(t *testing.T) {
 	defer cancel()
 
 	pipeline := wf.NewPipeline[TestData]()
-	pipeline.Steps = []wf.Step[TestData]{slowStep}
+	pipeline.Tasks = []*wf.Task[TestData]{wf.NewTask("slow", slowStep)}
 
 	_, err := pipeline.Run(ctx, &TestData{})
 
@@ -219,7 +226,7 @@ func TestParallelContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	parallelStep := wf.Parallel(nil, wf.Merge[TestData], slowStep, slowStep, slowStep)
+	parallelStep := wf.Parallel(nil, "merge", wf.Merge[TestData], wf.NewTask("slow1", slowStep), wf.NewTask("slow2", slowStep), wf.NewTask("slow3", slowStep))
 
 	_, err := parallelStep.Run(ctx, &TestData{})
 
@@ -238,7 +245,7 @@ func TestEmptyParallelExecution(t *testing.T) {
 		Value int
 	}
 
-	parallelStep := wf.Parallel(nil, wf.Merge[TestData])
+	parallelStep := wf.Parallel(nil, "merge", wf.Merge[TestData])
 
 	result, err := parallelStep.Run(t.Context(), &TestData{Value: 42})
 	if err != nil {
@@ -263,17 +270,17 @@ func TestSeriesErrorPropagation(t *testing.T) {
 	expectedErr := errors.New("series step error")
 
 	series := wf.Sequential(nil,
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		wf.NewTask("step1", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step1")
 			return data, nil
-		}),
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		})),
+		wf.NewTask("step2", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			return data, expectedErr
-		}),
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		})),
+		wf.NewTask("step3", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Steps = append(data.Steps, "step3") // Should not execute
 			return data, nil
-		}),
+		})),
 	)
 
 	result, err := series.Run(t.Context(), &TestData{})
@@ -303,23 +310,25 @@ func TestDeepNestedPipelines(t *testing.T) {
 	}
 
 	// Create deeply nested structure
-	innerParallel := wf.Parallel(nil,
+	innerParallel := wf.Parallel(
+		nil,
+		"merge",
 		wf.MergeTransform[TestData](mergo.WithTransformers(addInt{})),
-		createNestedStep("p1"),
-		createNestedStep("p2"),
+		wf.NewTask("p1", createNestedStep("p1")),
+		wf.NewTask("p2", createNestedStep("p2")),
 	)
 
 	innerSeries := wf.Sequential(nil,
-		createNestedStep("s1"),
-		innerParallel,
-		createNestedStep("s2"),
+		wf.NewTask("s1", createNestedStep("s1")),
+		wf.NewTask("innerParallel", innerParallel),
+		wf.NewTask("s2", createNestedStep("s2")),
 	)
 
 	outerPipeline := wf.NewPipeline[TestData]()
-	outerPipeline.Steps = []wf.Step[TestData]{
-		createNestedStep("start"),
-		innerSeries,
-		createNestedStep("end"),
+	outerPipeline.Tasks = []*wf.Task[TestData]{
+		wf.NewTask("start", createNestedStep("start")),
+		wf.NewTask("innerSeries", innerSeries),
+		wf.NewTask("end", createNestedStep("end")),
 	}
 
 	result, err := outerPipeline.Run(context.Background(), &TestData{})
@@ -352,8 +361,8 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 		Messages []string
 	}
 
-	errorRecoveryMiddleware := func(next wf.Step[TestData]) wf.Step[TestData] {
-		return &wf.MidFunc[TestData]{
+	errorRecoveryMiddleware := func(next *wf.Task[TestData]) *wf.Task[TestData] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[TestData]{
 			Name: "ErrorRecovery",
 			Next: next,
 			Fn: func(ctx context.Context, data *TestData) (*TestData, error) {
@@ -365,18 +374,18 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 				}
 				return result, nil
 			},
-		}
+		})
 	}
 
-	pipeline := wf.NewPipeline(errorRecoveryMiddleware)
-	pipeline.Steps = []wf.Step[TestData]{
-		wf.StepFunc[TestData](func(_ context.Context, _ *TestData) (*TestData, error) {
+	pipeline := wf.NewPipeline[TestData](errorRecoveryMiddleware)
+	pipeline.Tasks = []*wf.Task[TestData]{
+		wf.NewTask("errorStep", wf.StepFunc[TestData](func(_ context.Context, _ *TestData) (*TestData, error) {
 			return nil, errors.New("intentional error")
-		}),
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		})),
+		wf.NewTask("finalStep", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			data.Messages = append(data.Messages, "final step")
 			return data, nil
-		}),
+		})),
 	}
 
 	result, err := pipeline.Run(context.Background(), &TestData{})
@@ -405,13 +414,13 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	pipeline := wf.NewPipeline[TestData]()
-	pipeline.Steps = []wf.Step[TestData]{
-		wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+	pipeline.Tasks = []*wf.Task[TestData]{
+		wf.NewTask("step1", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 			// Simulate some work
 			time.Sleep(10 * time.Millisecond)
 			data.Value++
 			return data, nil
-		}),
+		})),
 	}
 
 	const numGoroutines = 10

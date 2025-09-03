@@ -142,7 +142,7 @@ func TestRetryMiddleware(t *testing.T) {
 			tt.step.Reset()
 
 			middleware := RetryMiddleware[TestData](tt.config)
-			wrappedStep := middleware(tt.step)
+			wrappedStep := middleware(NewTask("test", tt.step))
 
 			ctx := context.Background()
 			req := &TestData{Value: "test", Counter: 0}
@@ -195,7 +195,7 @@ func TestRetryMiddlewareWithContext(t *testing.T) {
 	}
 
 	middleware := RetryMiddleware[TestData](config)
-	wrappedStep := middleware(step)
+	wrappedStep := middleware(NewTask("test", step))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
@@ -249,7 +249,7 @@ func TestTimeoutMiddleware(t *testing.T) {
 			step := &failingStep{processTime: tt.processTime}
 
 			middleware := TimeoutMiddleware[TestData](tt.timeout)
-			wrappedStep := middleware(step)
+			wrappedStep := middleware(NewTask("test", step))
 
 			ctx := context.Background()
 			req := &TestData{Value: "test", Counter: 0}
@@ -337,7 +337,7 @@ func TestCircuitBreakerMiddleware(t *testing.T) {
 			step := &failingStep{failCount: b}
 
 			middleware := CircuitBreakerMiddleware[TestData](tt.config)
-			wrappedStep := middleware(step)
+			wrappedStep := middleware(NewTask("test", step))
 
 			ctx := context.Background()
 			req := &TestData{Value: "test", Counter: 0}
@@ -408,7 +408,7 @@ func TestMiddlewareCombination(t *testing.T) {
 	timeoutMiddleware := TimeoutMiddleware[TestData](200 * time.Millisecond)
 
 	// Apply both middleware (timeout wraps retry)
-	wrappedStep := timeoutMiddleware(retryMiddleware(step))
+	wrappedStep := timeoutMiddleware(retryMiddleware(NewTask("test", step)))
 
 	ctx := context.Background()
 	req := &TestData{Value: "test", Counter: 0}
@@ -475,7 +475,7 @@ func TestMiddlewareInPipeline(t *testing.T) {
 	timeoutMiddleware := TimeoutMiddleware[TestData](1 * time.Second)
 
 	pipeline := NewPipeline(retryMiddleware, timeoutMiddleware)
-	pipeline.Steps = []Step[TestData]{step1, step2}
+	pipeline.Tasks = []*Task[TestData]{NewTask("step1", step1), NewTask("step2", step2)}
 
 	ctx := context.Background()
 	req := &TestData{Value: "initial", Counter: 0}
@@ -562,7 +562,7 @@ func TestLoggerMiddleware(t *testing.T) {
 			}))
 
 			middleware := LoggerMiddleware[TestData](logger)
-			wrappedStep := middleware(tt.step)
+			wrappedStep := middleware(NewTask("test", tt.step))
 
 			ctx := context.Background()
 			req := &TestData{Value: "test", Counter: 0}
@@ -644,7 +644,7 @@ func TestUUIDMiddleware(t *testing.T) {
 	})
 
 	middleware := UUIDMiddleware[TestData]()
-	wrappedStep := middleware(step)
+	wrappedStep := middleware(NewTask("test", step))
 
 	ctx := context.Background()
 	req := &TestData{Value: "test", Counter: 0}

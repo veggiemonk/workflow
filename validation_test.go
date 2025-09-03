@@ -34,10 +34,10 @@ func TestStepValidation(t *testing.T) {
 
 	t.Run("pipeline validation", func(t *testing.T) {
 		pipeline := wf.NewPipeline[TestData]()
-		pipeline.Steps = []wf.Step[TestData]{
-			wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
+		pipeline.Tasks = []*wf.Task[TestData]{
+			wf.NewTask("test", wf.StepFunc[TestData](func(_ context.Context, data *TestData) (*TestData, error) {
 				return data, nil
-			}),
+			})),
 		}
 
 		err := validator.ValidatePipeline(pipeline)

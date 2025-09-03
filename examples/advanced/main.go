@@ -46,8 +46,8 @@ type ProcessingMetrics struct {
 
 // Custom middleware for metrics collection
 func metricsMiddleware() wf.Middleware[DataProcessingContext] {
-	return func(next wf.Step[DataProcessingContext]) wf.Step[DataProcessingContext] {
-		return &wf.MidFunc[DataProcessingContext]{
+	return func(next *wf.Task[DataProcessingContext]) *wf.Task[DataProcessingContext] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[DataProcessingContext]{
 			Name: "Metrics",
 			Next: next,
 			Fn: func(ctx context.Context, data *DataProcessingContext) (*DataProcessingContext, error) {
@@ -67,14 +67,14 @@ func metricsMiddleware() wf.Middleware[DataProcessingContext] {
 
 				return result, err
 			},
-		}
+		})
 	}
 }
 
 // Custom middleware for error handling
 func errorHandlingMiddleware(logger *slog.Logger) wf.Middleware[DataProcessingContext] {
-	return func(next wf.Step[DataProcessingContext]) wf.Step[DataProcessingContext] {
-		return &wf.MidFunc[DataProcessingContext]{
+	return func(next *wf.Task[DataProcessingContext]) *wf.Task[DataProcessingContext] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[DataProcessingContext]{
 			Name: "ErrorHandler",
 			Next: next,
 			Fn: func(ctx context.Context, data *DataProcessingContext) (*DataProcessingContext, error) {
@@ -89,7 +89,7 @@ func errorHandlingMiddleware(logger *slog.Logger) wf.Middleware[DataProcessingCo
 
 				return result, nil
 			},
-		}
+		})
 	}
 }
 
@@ -111,39 +111,39 @@ func main() {
 	)
 
 	// Define complex processing pipeline
-	pipeline.Steps = []wf.Step[DataProcessingContext]{
+	pipeline.Tasks = []*wf.Task[DataProcessingContext]{
 		// Step 1: Initialize processing
-		wf.StepFunc[DataProcessingContext](initializeProcessing),
+		wf.NewTask("initialize", wf.StepFunc[DataProcessingContext](initializeProcessing)),
 
 		// Step 2: Parallel data validation and preprocessing
-		wf.Parallel(nil, mergeDataProcessingResults,
-			wf.StepFunc[DataProcessingContext](validateData),
-			wf.StepFunc[DataProcessingContext](preprocessData),
-			wf.StepFunc[DataProcessingContext](calculateInitialMetrics),
-		),
+		wf.NewTask("validation", wf.Parallel(nil, "merge", mergeDataProcessingResults,
+			wf.NewTask("validateData", wf.StepFunc[DataProcessingContext](validateData)),
+			wf.NewTask("preprocessData", wf.StepFunc[DataProcessingContext](preprocessData)),
+			wf.NewTask("calculateInitialMetrics", wf.StepFunc[DataProcessingContext](calculateInitialMetrics)),
+		)),
 
 		// Step 3: Conditional processing based on data quality
-		wf.Select(nil,
+		wf.NewTask("conditional_processing", wf.Select(nil, "dataQualityGood",
 			dataQualityGood,
 			// High quality data path
-			wf.Sequential(nil,
-				wf.Parallel(nil, mergeDataProcessingResults,
-					wf.StepFunc[DataProcessingContext](processHighValueRecords),
-					wf.StepFunc[DataProcessingContext](processLowValueRecords),
-					wf.StepFunc[DataProcessingContext](processSpecialRecords),
-				),
-				wf.StepFunc[DataProcessingContext](aggregateResults),
-			),
+			wf.NewTask("high_quality_path", wf.Sequential(nil,
+				wf.NewTask("process_high_quality", wf.Parallel(nil, "merge", mergeDataProcessingResults,
+					wf.NewTask("processHighValueRecords", wf.StepFunc[DataProcessingContext](processHighValueRecords)),
+					wf.NewTask("processLowValueRecords", wf.StepFunc[DataProcessingContext](processLowValueRecords)),
+					wf.NewTask("processSpecialRecords", wf.StepFunc[DataProcessingContext](processSpecialRecords)),
+				)),
+				wf.NewTask("aggregateResults", wf.StepFunc[DataProcessingContext](aggregateResults)),
+			)),
 			// Low quality data path
-			wf.Sequential(nil,
-				wf.StepFunc[DataProcessingContext](cleanData),
-				wf.StepFunc[DataProcessingContext](reprocessData),
-			),
-		),
+			wf.NewTask("low_quality_path", wf.Sequential(nil,
+				wf.NewTask("cleanData", wf.StepFunc[DataProcessingContext](cleanData)),
+				wf.NewTask("reprocessData", wf.StepFunc[DataProcessingContext](reprocessData)),
+			)),
+		)),
 
 		// Step 4: Final validation and reporting
-		wf.StepFunc[DataProcessingContext](finalValidation),
-		wf.StepFunc[DataProcessingContext](generateReport),
+		wf.NewTask("finalValidation", wf.StepFunc[DataProcessingContext](finalValidation)),
+		wf.NewTask("generateReport", wf.StepFunc[DataProcessingContext](generateReport)),
 	}
 
 	// Execute the pipeline
@@ -447,10 +447,7 @@ func generateSampleData(count int) []DataRecord {
 }
 
 func exportResults(data *DataProcessingContext) error {
-	// check if results.json already exists
-	if _, err := os.Stat("results.json"); err == nil {
-		return fmt.Errorf("results.json already exists, please remove it before exporting")
-	}
+	
 	file, err := os.Create("results.json")
 	if err != nil {
 		return err

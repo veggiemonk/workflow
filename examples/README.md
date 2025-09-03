@@ -42,6 +42,14 @@ Comprehensive demonstration of built-in middleware:
 
 **Best for**: Understanding resilience patterns, production reliability
 
+### 5. [Serialization](./serialization/)
+Demonstrates how to serialize a pipeline to a JSON file and deserialize it back into a runnable pipeline:
+- Pipeline serialization to JSON
+- Deserializing pipelines using a `Builder`
+- Using a `Registry` for dynamic task loading
+
+**Best for**: Dynamic pipeline creation, storing workflow definitions.
+
 ## Running Examples
 
 Each example is self-contained with its own `main.go` and documentation:
@@ -58,6 +66,9 @@ cd advanced && go run main.go
 
 # Middleware example
 cd middleware && go run main.go
+
+# Serialization example
+cd serialization && go run main.go
 ```
 
 ## Learning Path
@@ -65,6 +76,7 @@ cd middleware && go run main.go
 1. **Start with Basic**: Understand core concepts
 2. **Try CI/CD**: See real-world application patterns
 3. **Explore Advanced**: Learn sophisticated patterns and customization
+4. **Review Serialization**: Understand how to persist and dynamically load workflows.
 
 ## Common Patterns Demonstrated
 
@@ -75,5 +87,6 @@ cd middleware && go run main.go
 - **Error Handling**: Graceful failure management
 - **Data Transformation**: Passing and modifying data through pipelines
 - **Pipeline Visualization**: Understanding workflow structure
+- **Serialization**: Storing and loading pipeline definitions.
 
 Each example builds upon the previous one, introducing more sophisticated concepts and patterns.

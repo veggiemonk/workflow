@@ -28,6 +28,9 @@ examples: ## Run all examples
 	@cd examples/advanced && go run main.go
 	@echo "\n\nRunning middleware example..."
 	@cd examples/middleware && go run main.go
+	@echo "\n\nRunning serialization example..."
+	@cd examples/serialization && go run main.go
+
 
 tidy: ## Run go mod tidy on all modules
 	go mod tidy

@@ -36,7 +36,7 @@ A step that orchestrates a sequence of other steps.
 
 ```go
 type Pipeline[T any] struct {
-    Steps      []Step[T]
+    Tasks      []*Task[T]
     Middleware []Middleware[T]
 }
 ```
@@ -52,7 +52,7 @@ type Pipeline[T any] struct {
 Cross-cutting concerns that wrap step execution.
 
 ```go
-type Middleware[T any] func(s Step[T]) Step[T]
+type Middleware[T any] func(s *Task[T]) *Task[T]
 ```
 
 **Common Use Cases:**
@@ -65,18 +65,18 @@ type Middleware[T any] func(s Step[T]) Step[T]
 
 ### Series and Parallel Composition
 
-#### Series[T]
+#### Sequential[T]
 Sequential execution where each step receives the output of the previous step.
 
 ```go
-func Series[T any](mid []Middleware[T], steps ...Step[T]) *series[T]
+func Sequential[T any](mid []Middleware[T], tasks ...*Task[T]) *series[T]
 ```
 
 #### Parallel[T] 
 Concurrent execution where all steps receive the same input, and results are merged.
 
 ```go
-func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T]
+func Parallel[T any](mid []Middleware[T], name string, merge MergeRequest[T], tasks ...*Task[T]) *parallel[T]
 ```
 
 **Key Concepts:**
@@ -89,7 +89,7 @@ func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T
 Conditional execution based on runtime conditions.
 
 ```go
-func Select[T any](mid []Middleware[T], s Selector[T], ifStep, elseStep Step[T]) Step[T]
+func Select[T any](mid []Middleware[T], name string, s Selector[T], ifTask, elseTask *Task[T]) Step[T]
 ```
 
 ## Data Flow
@@ -179,12 +179,19 @@ func (s MyStep) String() string {
 }
 ```
 
+Then, wrap it in a `Task` to use it in a `Pipeline`:
+
+```go
+myStep := &MyStep{config: myConfig}
+task := NewTask("my-custom-step", myStep)
+```
+
 ### Custom Middleware
 Create functions that wrap steps:
 
 ```go
 func myMiddleware[T any]() Middleware[T] {
-    return func(next Step[T]) Step[T] {
+    return func(next *Task[T]) *Task[T] {
         return &MidFunc[T]{
             Name: "MyMiddleware",
             Next: next,

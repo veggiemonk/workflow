@@ -38,37 +38,37 @@ func main() {
 	)
 
 	// Define the CI/CD pipeline steps
-	pipeline.Steps = []wf.Step[BuildContext]{
+	pipeline.Tasks = []*wf.Task[BuildContext]{
 		// Step 1: Checkout code
-		wf.StepFunc[BuildContext](checkoutCode),
+		wf.NewTask("checkout", wf.StepFunc[BuildContext](checkoutCode)),
 
 		// Step 2: Run parallel quality checks
-		wf.Parallel(nil, wf.Merge[BuildContext],
-			wf.StepFunc[BuildContext](runTests),
-			wf.StepFunc[BuildContext](runLinter),
-			wf.StepFunc[BuildContext](runSecurityScan),
-		),
+		wf.NewTask("quality_checks", wf.Parallel(nil, "merge", wf.Merge[BuildContext],
+			wf.NewTask("runTests", wf.StepFunc[BuildContext](runTests)),
+			wf.NewTask("runLinter", wf.StepFunc[BuildContext](runLinter)),
+			wf.NewTask("runSecurityScan", wf.StepFunc[BuildContext](runSecurityScan)),
+		)),
 
 		// Step 3: Build if quality checks pass
-		wf.Select(nil,
+		wf.NewTask("build", wf.Select(nil, "quality_checks_passed",
 			qualityChecksPassed,
-			wf.StepFunc[BuildContext](buildApplication),
-			wf.StepFunc[BuildContext](skipBuild),
-		),
+			wf.NewTask("buildApplication", wf.StepFunc[BuildContext](buildApplication)),
+			wf.NewTask("skipBuild", wf.StepFunc[BuildContext](skipBuild)),
+		)),
 
 		// Step 4: Deploy if build succeeded
-		wf.Select(nil,
+		wf.NewTask("deploy", wf.Select(nil, "build_succeeded",
 			buildSucceeded,
-			wf.Sequential(nil,
-				wf.StepFunc[BuildContext](deployToStaging),
-				wf.StepFunc[BuildContext](runSmokeTests),
-				wf.StepFunc[BuildContext](deployToProduction),
-			),
-			wf.StepFunc[BuildContext](notifyFailure),
-		),
+			wf.NewTask("deploy_sequence", wf.Sequential(nil,
+				wf.NewTask("deployToStaging", wf.StepFunc[BuildContext](deployToStaging)),
+				wf.NewTask("runSmokeTests", wf.StepFunc[BuildContext](runSmokeTests)),
+				wf.NewTask("deployToProduction", wf.StepFunc[BuildContext](deployToProduction)),
+			)),
+			wf.NewTask("notifyFailure", wf.StepFunc[BuildContext](notifyFailure)),
+		)),
 
 		// Step 5: Final reporting
-		wf.StepFunc[BuildContext](generateReport),
+		wf.NewTask("report", wf.StepFunc[BuildContext](generateReport)),
 	}
 
 	// Execute the pipeline

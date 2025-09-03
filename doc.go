@@ -7,6 +7,7 @@
 //   - Pipelines: Define a sequence of steps to be executed.
 //   - Sequential and Parallel Execution: Run steps one after another or concurrently.
 //   - Middleware: Intercept and modify the execution of steps.
+//   - Serialization: Save and load pipeline definitions to and from JSON.
 //   - Generic: Works with any data type.
 //   - Context-aware: Supports cancellation and deadlines through context.
 //
@@ -17,4 +18,6 @@
 //   - Sequential: A step that executes a list of other steps sequentially.
 //   - Parallel: A step that executes a list of other steps in parallel and merges their results.
 //   - Middleware: A function that wraps a step to add functionality, such as logging or error handling.
+//   - Registry: A repository for named tasks, selectors, and merge requests, used for deserialization.
+//   - Builder: A tool to construct a pipeline from a serialized specification.
 package workflow

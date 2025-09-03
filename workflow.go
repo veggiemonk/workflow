@@ -26,6 +26,9 @@ type Step[T any] interface {
 
 // Name returns the name of a step.
 func Name[T any](s Step[T]) string {
+	if task, ok := s.(*Task[T]); ok {
+		return Name(task.step)
+	}
 	t := reflect.TypeOf(s)
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()

@@ -21,8 +21,8 @@ const StepUUIDKey contextKey = "step_uuid"
 // The UUID is stored in the context with the key StepUUIDKey and can be retrieved
 // using ctx.Value(StepUUIDKey).(string).
 func UUIDMiddleware[T any]() Middleware[T] {
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
+	return func(next *Task[T]) *Task[T] {
+		return NewTask(next.Name(), &MidFunc[T]{
 			Name: "UUID",
 			Next: next,
 			Fn: func(ctx context.Context, req *T) (*T, error) {
@@ -30,14 +30,14 @@ func UUIDMiddleware[T any]() Middleware[T] {
 				ctx = context.WithValue(ctx, StepUUIDKey, stepUUID)
 				return next.Run(ctx, req)
 			},
-		}
+		})
 	}
 }
 
 // LoggerMiddleware returns a middleware that logs step execution using the provided slog.Logger.
 func LoggerMiddleware[T any](l *slog.Logger) Middleware[T] {
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
+	return func(next *Task[T]) *Task[T] {
+		return NewTask(next.Name(), &MidFunc[T]{
 			Name: "Logger",
 			Next: next,
 			Fn: func(ctx context.Context, res *T) (*T, error) {
@@ -51,7 +51,7 @@ func LoggerMiddleware[T any](l *slog.Logger) Middleware[T] {
 					"Result", fmt.Sprintf("%v", resp))
 				return resp, err
 			},
-		}
+		})
 	}
 }
 
@@ -106,8 +106,8 @@ func RetryMiddleware[T any](config RetryConfig) Middleware[T] {
 		config.BackoffMultiplier = 2.0
 	}
 
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
+	return func(next *Task[T]) *Task[T] {
+		return NewTask(next.Name(), &MidFunc[T]{
 			Name: "Retry",
 			Next: next,
 			Fn: func(ctx context.Context, req *T) (*T, error) {
@@ -153,7 +153,7 @@ func RetryMiddleware[T any](config RetryConfig) Middleware[T] {
 				// All attempts failed, return the last error wrapped with attempt info
 				return nil, fmt.Errorf("step failed after %d attempts: %w", config.MaxAttempts, lastErr)
 			},
-		}
+		})
 	}
 }
 
@@ -161,8 +161,8 @@ func RetryMiddleware[T any](config RetryConfig) Middleware[T] {
 // If the step doesn't complete within the specified duration, it returns a context
 // deadline exceeded error.
 func TimeoutMiddleware[T any](timeout time.Duration) Middleware[T] {
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
+	return func(next *Task[T]) *Task[T] {
+		return NewTask(next.Name(), &MidFunc[T]{
 			Name: "Timeout",
 			Next: next,
 			Fn: func(ctx context.Context, req *T) (*T, error) {
@@ -191,7 +191,7 @@ func TimeoutMiddleware[T any](timeout time.Duration) Middleware[T] {
 					return nil, fmt.Errorf("step timed out after %v: %w", timeout, timeoutCtx.Err())
 				}
 			},
-		}
+		})
 	}
 }
 
@@ -250,8 +250,8 @@ func CircuitBreakerMiddleware[T any](config CircuitBreakerConfig) Middleware[T] 
 		mu              sync.RWMutex
 	)
 
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
+	return func(next *Task[T]) *Task[T] {
+		return NewTask(next.Name(), &MidFunc[T]{
 			Name: "CircuitBreaker",
 			Next: next,
 			Fn: func(ctx context.Context, req *T) (*T, error) {
@@ -308,6 +308,6 @@ func CircuitBreakerMiddleware[T any](config CircuitBreakerConfig) Middleware[T] 
 
 				return resp, nil
 			},
-		}
+		})
 	}
 }

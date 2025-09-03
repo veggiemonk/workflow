@@ -35,15 +35,15 @@ func TestMiddleware(t *testing.T) {
 		cpt++
 	}
 	mid := func(inc func()) wf.Middleware[Result] {
-		return func(next wf.Step[Result]) wf.Step[Result] {
-			return &wf.MidFunc[Result]{
+		return func(next *wf.Task[Result]) *wf.Task[Result] {
+			return wf.NewTask(next.Name(), &wf.MidFunc[Result]{
 				Name: "Incr",
 				Next: next,
 				Fn: func(ctx context.Context, res *Result) (*Result, error) {
 					inc()
 					return next.Run(ctx, res)
 				},
-			}
+			})
 		}
 	}
 	p := wf.NewPipeline(mid(incr))
@@ -55,9 +55,9 @@ func TestMiddleware(t *testing.T) {
 		t.Fatalf("cpt %d != 0", cpt)
 	}
 
-	p.Steps = append(p.Steps, wf.StepFunc[Result](func(_ context.Context, res *Result) (*Result, error) {
+	p.Tasks = append(p.Tasks, wf.NewTask("test", wf.StepFunc[Result](func(_ context.Context, res *Result) (*Result, error) {
 		return res, nil
-	}))
+	})))
 	_, err = p.Run(context.Background(), &Result{Messages: []string{}})
 	if err != nil {
 		t.Fatal(err)
@@ -97,46 +97,46 @@ func TestPipeline(t *testing.T) {
 		return r, nil
 	})
 
-	sf := make([]wf.Step[Result], 0)
-	for range 10 {
-		sf = append(sf, wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+	sf := make([]*wf.Task[Result], 0)
+	for i := range 10 {
+		sf = append(sf, wf.NewTask(fmt.Sprintf("step-%d", i), wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.State.Counter++
 			return r, nil
-		}))
+		})))
 	}
 
 	mid := []wf.Middleware[Result]{
 		wf.LoggerMiddleware[Result](logger),
 	}
 	p := wf.NewPipeline(mid...)
-	p.Steps = []wf.Step[Result]{
-		wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+	p.Tasks = []*wf.Task[Result]{
+		wf.NewTask("first step", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 			r.Messages = append(r.Messages, "first step")
 			return r, nil
-		}),
-		wf.Sequential(mid,
-			wf.Parallel(mid, wf.MergeTransform[Result](mergo.WithTransformers(addInt{})), sf...),
-			wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+		})),
+		wf.NewTask("sequential", wf.Sequential(mid,
+			wf.NewTask("parallel", wf.Parallel(mid, "merge", wf.MergeTransform[Result](mergo.WithTransformers(addInt{})), sf...)),
+			wf.NewTask("extra serial step", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "extra serial step")
 				r.Err = errors.Join(r.Err, errIgnoreMe)
 				return r, nil
-			}),
-		),
-		handleErr{l: logger},
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-			f := wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
+			})),
+		)),
+		wf.NewTask("handleErr", handleErr{l: logger}),
+		wf.NewTask("last step", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+			f := wf.NewTask("inner step", wf.StepFunc[Result](func(_ context.Context, r *Result) (*Result, error) {
 				r.Messages = append(r.Messages, "extra inner step")
 				r.Err = errors.Join(r.Err, errors.New("oops"))
 				return r, nil
-			})
+			}))
 			resp, err := f.Run(ctx, r)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r.Messages = append(r.Messages, "last step")
 			return resp, err
-		}),
-		wf.Select(mid, selector, ifstep, elsestep),
+		})),
+		wf.NewTask("select", wf.Select(mid, "select", selector, wf.NewTask("if", ifstep), wf.NewTask("else", elsestep))),
 	}
 
 	ctx := context.Background()
@@ -189,7 +189,7 @@ Pipeline[Result]
 
 func TestString(t *testing.T) {
 	p := wf.NewPipeline[Result]()
-	p.Steps = []wf.Step[Result]{}
+	p.Tasks = []*wf.Task[Result]{}
 
 	want := "Pipeline[Result]"
 	if diff := Diff(p.String(), want); diff != "" {
@@ -246,8 +246,8 @@ func TestUUIDMiddleware(t *testing.T) {
 	uuidMid := wf.UUIDMiddleware[Result]()
 
 	// Create logging middleware that also displays the step UUID
-	logMid := func(next wf.Step[Result]) wf.Step[Result] {
-		return &wf.MidFunc[Result]{
+	logMid := func(next *wf.Task[Result]) *wf.Task[Result] {
+		return wf.NewTask(next.Name(), &wf.MidFunc[Result]{
 			Name: "UUIDLogger",
 			Next: next,
 			Fn: func(ctx context.Context, res *Result) (*Result, error) {
@@ -262,24 +262,24 @@ func TestUUIDMiddleware(t *testing.T) {
 				}
 				return resp, err
 			},
-		}
+		})
 	}
 
 	// Create a pipeline with both UUID and logging middleware
-	p := wf.NewPipeline(uuidMid, logMid)
+	p := wf.NewPipeline[Result](uuidMid, logMid)
 
 	// Define the steps
-	p.Steps = []wf.Step[Result]{
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+	p.Tasks = []*wf.Task[Result]{
+		wf.NewTask("step1", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 			stepUUID := ctx.Value(wf.StepUUIDKey).(string)
 			r.Messages = append(r.Messages, fmt.Sprintf("Step 1 executed with UUID: %s", stepUUID))
 			return r, nil
-		}),
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
+		})),
+		wf.NewTask("step2", wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
 			stepUUID := ctx.Value(wf.StepUUIDKey).(string)
 			r.Messages = append(r.Messages, fmt.Sprintf("Step 2 executed with UUID: %s", stepUUID))
 			return r, nil
-		}),
+		})),
 	}
 
 	// Run the pipeline

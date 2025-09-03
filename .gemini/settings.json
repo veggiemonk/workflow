@@ -1,0 +1,21 @@
+{
+  "showMemoryUsage": true,
+  "showLineNumbers": true,
+  "allowMCPServers": [
+    "gopls"
+  ],
+  "excludeMCPServers": [],
+  "mcpServers": {
+    "gopls": {
+      "command": "gopls",
+      "args": [
+        "mcp"
+      ],
+      "timeout": 30000,
+      "trust": true
+    }
+  },
+  "tools": {
+    "useRipgrep": true
+  }
+}

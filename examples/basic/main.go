@@ -21,36 +21,36 @@ func main() {
 	pipeline := wf.NewPipeline[ProcessData]()
 
 	// Define the steps
-	pipeline.Steps = []wf.Step[ProcessData]{
+	pipeline.Tasks = []*wf.Task[ProcessData]{
 		// Step 1: Initialize
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
+		wf.NewTask("initialize", wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
 			data.Messages = append(data.Messages, "Pipeline started")
 			fmt.Println("✓ Pipeline initialized")
 			return data, nil
-		}),
+		})),
 
 		// Step 2: Transform input
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
+		wf.NewTask("transform", wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
 			data.Output = fmt.Sprintf("Processed: %s", data.Input)
 			data.Messages = append(data.Messages, "Input transformed")
 			fmt.Println("✓ Input transformed")
 			return data, nil
-		}),
+		})),
 
 		// Step 3: Count processing
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
+		wf.NewTask("count", wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
 			data.Counter++
 			data.Messages = append(data.Messages, "Counter incremented")
 			fmt.Println("✓ Counter incremented")
 			return data, nil
-		}),
+		})),
 
 		// Step 4: Finalize
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
+		wf.NewTask("finalize", wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
 			data.Messages = append(data.Messages, "Pipeline completed")
 			fmt.Println("✓ Pipeline completed")
 			return data, nil
-		}),
+		})),
 	}
 
 	// Execute the pipeline

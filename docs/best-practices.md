@@ -7,9 +7,12 @@
 **✅ Good:**
 ```go
 // Each step has a single responsibility
-wf.StepFunc[Data](validateInput),
-wf.StepFunc[Data](transformData),
-wf.StepFunc[Data](saveResults),
+pipeline := wf.NewPipeline[Data]()
+pipeline.Tasks = []*wf.Task[Data]{
+	wf.NewTask("validate", wf.StepFunc[Data](validateInput)),
+	wf.NewTask("transform", wf.StepFunc[Data](transformData)),
+	wf.NewTask("save", wf.StepFunc[Data](saveResults)),
+}
 ```
 
 **❌ Avoid:**
@@ -61,8 +64,8 @@ wf.StepFunc[Data](func(ctx context.Context, data *Data) (*Data, error) {
 **Graceful Degradation:**
 ```go
 func errorRecoveryMiddleware[T any]() wf.Middleware[T] {
-    return func(next wf.Step[T]) wf.Step[T] {
-        return &wf.MidFunc[T]{
+    return func(next *wf.Task[T]) *wf.Task[T] {
+        return wf.NewTask(next.Name(), &wf.MidFunc[T]{
             Name: "ErrorRecovery",
             Next: next,
             Fn: func(ctx context.Context, data *T) (*T, error) {
@@ -74,7 +77,7 @@ func errorRecoveryMiddleware[T any]() wf.Middleware[T] {
                 }
                 return result, nil
             },
-        }
+        })
     }
 }
 ```
@@ -213,17 +216,18 @@ func safeParallelMerge[T any](ctx context.Context, base *T, results ...*T) (*T, 
 
 ```go
 // Limit concurrent operations
-func createLimitedParallel[T any](maxConcurrency int, steps ...wf.Step[T]) wf.Step[T] {
+func createLimitedParallel[T any](maxConcurrency int, tasks ...*wf.Task[T]) wf.Step[T] {
     semaphore := make(chan struct{}, maxConcurrency)
     
-    return wf.Parallel(nil, wf.Merge[T], 
-        wrapWithSemaphore(semaphore, steps...)...)
+    // Note: semaphoreStep is a hypothetical Step implementation that would manage the semaphore.
+    return wf.Parallel(nil, "limited-parallel", wf.Merge[T], 
+        wrapWithSemaphore(semaphore, tasks...)...)
 }
 
-func wrapWithSemaphore[T any](sem chan struct{}, steps ...wf.Step[T]) []wf.Step[T] {
-    wrapped := make([]wf.Step[T], len(steps))
-    for i, step := range steps {
-        wrapped[i] = &semaphoreStep[T]{step: step, sem: sem}
+func wrapWithSemaphore[T any](sem chan struct{}, tasks ...*wf.Task[T]) []*wf.Task[T] {
+    wrapped := make([]*wf.Task[T], len(tasks))
+    for i, task := range tasks {
+        wrapped[i] = wf.NewTask(task.Name(), &semaphoreStep[T]{step: task, sem: sem})
     }
     return wrapped
 }
@@ -237,8 +241,8 @@ func wrapWithSemaphore[T any](sem chan struct{}, steps ...wf.Step[T]) []wf.Step[
 ```go
 // Middleware that can be configured
 func retryMiddleware[T any](maxRetries int, backoff time.Duration) wf.Middleware[T] {
-    return func(next wf.Step[T]) wf.Step[T] {
-        return &wf.MidFunc[T]{
+    return func(next *wf.Task[T]) *wf.Task[T] {
+        return wf.NewTask(next.Name(), &wf.MidFunc[T]{
             Name: fmt.Sprintf("Retry(%d)", maxRetries),
             Next: next,
             Fn: func(ctx context.Context, data *T) (*T, error) {
@@ -260,7 +264,7 @@ func retryMiddleware[T any](maxRetries int, backoff time.Duration) wf.Middleware
                 }
                 return nil, lastErr
             },
-        }
+        })
     }
 }
 ```
@@ -269,8 +273,8 @@ func retryMiddleware[T any](maxRetries int, backoff time.Duration) wf.Middleware
 
 ```go
 func conditionalMiddleware[T any](condition func(*T) bool, mid wf.Middleware[T]) wf.Middleware[T] {
-    return func(next wf.Step[T]) wf.Step[T] {
-        return &wf.MidFunc[T]{
+    return func(next *wf.Task[T]) *wf.Task[T] {
+        return wf.NewTask(next.Name(), &wf.MidFunc[T]{
             Name: "Conditional",
             Next: next,
             Fn: func(ctx context.Context, data *T) (*T, error) {
@@ -279,7 +283,7 @@ func conditionalMiddleware[T any](condition func(*T) bool, mid wf.Middleware[T])
                 }
                 return next.Run(ctx, data)
             },
-        }
+        })
     }
 }
 ```
@@ -320,10 +324,10 @@ func TestValidationStep(t *testing.T) {
 ```go
 func TestPipelineIntegration(t *testing.T) {
     pipeline := wf.NewPipeline[Data]()
-    pipeline.Steps = []wf.Step[Data]{
-        CreateValidationStep(),
-        CreateTransformStep(),
-        CreateSaveStep(),
+    pipeline.Tasks = []*wf.Task[Data]{
+        wf.NewTask("validate", CreateValidationStep()),
+        wf.NewTask("transform", CreateTransformStep()),
+        wf.NewTask("save", CreateSaveStep()),
     }
     
     input := &Data{Value: "test"}
@@ -342,13 +346,13 @@ func TestLoggingMiddleware(t *testing.T) {
     var buf bytes.Buffer
     logger := slog.New(slog.NewTextHandler(&buf, nil))
     
-    mid := LoggerMiddleware[Data](logger)
-    step := wf.StepFunc[Data](func(ctx context.Context, d *Data) (*Data, error) {
+    mid := wf.LoggerMiddleware[Data](logger)
+    task := wf.NewTask("test-task", wf.StepFunc[Data](func(ctx context.Context, d *Data) (*Data, error) {
         return d, nil
-    })
+    }))
     
-    wrappedStep := mid(step)
-    _, err := wrappedStep.Run(context.Background(), &Data{})
+    wrappedTask := mid(task)
+    _, err := wrappedTask.Run(context.Background(), &Data{})
     
     assert.NoError(t, err)
     assert.Contains(t, buf.String(), "start")
@@ -424,8 +428,8 @@ func (s StreamStep[T]) Run(ctx context.Context, data *StreamData[T]) (*StreamDat
 
 ```go
 func metricsMiddleware[T any](metrics *Metrics) wf.Middleware[T] {
-    return func(next wf.Step[T]) wf.Step[T] {
-        return &wf.MidFunc[T]{
+    return func(next *wf.Task[T]) *wf.Task[T] {
+        return wf.NewTask(next.Name(), &wf.MidFunc[T]{
             Name: "Metrics",
             Next: next,
             Fn: func(ctx context.Context, data *T) (*T, error) {
@@ -445,7 +449,7 @@ func metricsMiddleware[T any](metrics *Metrics) wf.Middleware[T] {
                 
                 return result, err
             },
-        }
+        })
     }
 }
 ```
@@ -456,8 +460,8 @@ func metricsMiddleware[T any](metrics *Metrics) wf.Middleware[T] {
 import "go.opentelemetry.io/otel/trace"
 
 func tracingMiddleware[T any](tracer trace.Tracer) wf.Middleware[T] {
-    return func(next wf.Step[T]) wf.Step[T] {
-        return &wf.MidFunc[T]{
+    return func(next *wf.Task[T]) *wf.Task[T] {
+        return wf.NewTask(next.Name(), &wf.MidFunc[T]{
             Name: "Tracing",
             Next: next,
             Fn: func(ctx context.Context, data *T) (*T, error) {
@@ -473,7 +477,7 @@ func tracingMiddleware[T any](tracer trace.Tracer) wf.Middleware[T] {
                 
                 return result, err
             },
-        }
+        })
     }
 }
 ```
@@ -516,17 +520,17 @@ wf.StepFunc[Data](func(ctx context.Context, data *Data) (*Data, error) {
 
 ```go
 // DON'T DO THIS - Hard to understand and debug
-wf.Series(nil,
-    wf.Parallel(nil, merge,
-        wf.Series(nil,
-            wf.Parallel(nil, merge,
-                step1, step2),
-            step3),
-        step4),
-    step5)
+wf.Sequential(nil,
+    wf.NewTask("parallel-1", wf.Parallel(nil, "merge-1", merge,
+        wf.NewTask("sequential-2", wf.Sequential(nil,
+            wf.NewTask("parallel-2", wf.Parallel(nil, "merge-2", merge,
+                wf.NewTask("step1", step1), wf.NewTask("step2", step2))),
+            wf.NewTask("step3", step3))),
+        wf.NewTask("step4", step4))),
+    wf.NewTask("step5", step5))
 
 // DO THIS INSTEAD - Break into logical components
-validation := wf.Parallel(nil, merge, validateInput, validateAuth)
-processing := wf.Series(nil, processData, enrichData)
-pipeline := wf.Series(nil, validation, processing, saveResults)
+validation := wf.NewTask("validation", wf.Parallel(nil, "merge-validation", merge, wf.NewTask("validate-input", validateInput), wf.NewTask("validate-auth", validateAuth)))
+processing := wf.NewTask("processing", wf.Sequential(nil, wf.NewTask("process-data", processData), wf.NewTask("enrich-data", enrichData)))
+pipeline := wf.NewTask("pipeline", wf.Sequential(nil, validation, processing, wf.NewTask("save-results", saveResults)))
 ```

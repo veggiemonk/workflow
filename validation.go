@@ -28,7 +28,7 @@ func (v StepValidator[T]) ValidatePipeline(pipeline *Pipeline[T]) error {
 		return fmt.Errorf("pipeline cannot be nil")
 	}
 
-	for i, step := range pipeline.Steps {
+	for i, step := range pipeline.Tasks {
 		if err := v.ValidateStep(step); err != nil {
 			return fmt.Errorf("step %d validation failed: %w", i, err)
 		}

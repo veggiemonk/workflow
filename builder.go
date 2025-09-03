@@ -57,7 +57,7 @@ func (b *Builder[T]) buildTaskFromSpec(spec *TaskSpec) (*Task[T], error) {
 		if err != nil {
 			return nil, err
 		}
-		return NewTask(spec.Name, Parallel(nil, merge, tasks...)), nil
+		return NewTask(spec.Name, Parallel(nil, spec.Name, merge, tasks...)), nil
 	case "selector":
 		var ifTask, elseTask *Task[T]
 		var err error
@@ -77,7 +77,7 @@ func (b *Builder[T]) buildTaskFromSpec(spec *TaskSpec) (*Task[T], error) {
 		if err != nil {
 			return nil, err
 		}
-		return NewTask(spec.Name, Select(nil, selector, ifTask, elseTask)), nil
+		return NewTask(spec.Name, Select(nil, spec.Name, selector, ifTask, elseTask)), nil
 	default:
 		return b.registry.Get(spec.Name)
 	}
