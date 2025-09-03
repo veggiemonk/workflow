@@ -177,6 +177,7 @@ type selector[T any] struct {
 	ifTask     *Task[T]
 	elseTask   *Task[T]
 	middleware []Middleware[T]
+	name       string
 }
 
 // String returns the name of the selector.
@@ -219,12 +220,13 @@ func (s selector[T]) String() string {
 }
 
 // Select creates a new selector step.
-func Select[T any](mid []Middleware[T], s Selector[T], ifTask, elseTask *Task[T]) Step[T] {
+func Select[T any](mid []Middleware[T], name string, s Selector[T], ifTask, elseTask *Task[T]) Step[T] {
 	return &selector[T]{
 		s:          s,
 		ifTask:     ifTask,
 		elseTask:   elseTask,
 		middleware: mid,
+		name:       name,
 	}
 }
 
@@ -243,6 +245,21 @@ func (s selector[T]) Run(ctx context.Context, r *T) (*T, error) {
 		task = m(task)
 	}
 	return task.Run(ctx, r)
+}
+
+// ToSpec returns the serializable representation of the selector.
+func (s selector[T]) ToSpec() *TaskSpec {
+	spec := &TaskSpec{
+		Type:     "selector",
+		Selector: s.name,
+	}
+	if s.ifTask != nil {
+		spec.IfTask = s.ifTask.ToSpec()
+	}
+	if s.elseTask != nil {
+		spec.ElseTask = s.elseTask.ToSpec()
+	}
+	return spec
 }
 
 // Series
@@ -316,6 +333,18 @@ func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 	return resp, nil
 }
 
+// ToSpec returns the serializable representation of the series.
+func (s *series[T]) ToSpec() *TaskSpec {
+	spec := &TaskSpec{
+		Type:  "series",
+		Tasks: make([]*TaskSpec, len(s.Tasks)),
+	}
+	for i, task := range s.Tasks {
+		spec.Tasks[i] = task.ToSpec()
+	}
+	return spec
+}
+
 // Parallel
 
 // parallel is a step that executes a list of other steps in parallel.
@@ -323,6 +352,20 @@ type parallel[T any] struct {
 	merge      MergeRequest[T]
 	Tasks      []*Task[T]
 	middleware []Middleware[T]
+	name       string
+}
+
+// ToSpec returns the serializable representation of the parallel.
+func (p *parallel[T]) ToSpec() *TaskSpec {
+	spec := &TaskSpec{
+		Type:  "parallel",
+		Tasks: make([]*TaskSpec, len(p.Tasks)),
+		Merge: p.name,
+	}
+	for i, task := range p.Tasks {
+		spec.Tasks[i] = task.ToSpec()
+	}
+	return spec
 }
 
 // String returns the name of the parallel step.
@@ -366,11 +409,12 @@ type MergeRequest[T any] func(context.Context, *T, ...*T) (*T, error)
 
 // Parallel executes a list of steps in parallel.
 // Once all the steps are done, the merge request [MergeRequest] will combine all the results into one struct T.
-func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], tasks ...*Task[T]) *parallel[T] {
+func Parallel[T any](mid []Middleware[T], name string, merge MergeRequest[T], tasks ...*Task[T]) *parallel[T] {
 	return &parallel[T]{
 		merge:      merge,
 		Tasks:      tasks,
 		middleware: mid,
+		name:       name,
 	}
 }
 
