@@ -24,7 +24,6 @@
 # Working with Go Code
 - read [gopls.md](./docs/gopls.md)
 
-
 # Getting Help
 - Ask for clarification.
 - Ask for help when needed.

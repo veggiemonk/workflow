@@ -1,21 +1,26 @@
 {
   "showMemoryUsage": true,
   "showLineNumbers": true,
-  "allowMCPServers": [
-    "gopls"
-  ],
+  "allowMCPServers": ["gopls"],
   "excludeMCPServers": [],
   "mcpServers": {
     "gopls": {
       "command": "gopls",
-      "args": [
-        "mcp"
-      ],
+      "args": ["mcp"],
       "timeout": 30000,
       "trust": true
     }
   },
   "tools": {
     "useRipgrep": true
+  },
+  "telemetry": {
+    "enabled": true,
+    "target": "local",
+    "logPrompts": true,
+    "outfile": "docs/telemetry.log"
+  },
+  "privacy": {
+    "usageStatisticsEnabled": true
   }
 }
