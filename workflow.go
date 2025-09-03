@@ -2,8 +2,10 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"reflect"
 	"runtime/debug"
 	"slices"
@@ -32,10 +34,15 @@ func Name[T any](s Step[T]) string {
 	return strings.Replace(t.Name(), reflect.TypeOf(z).Elem().PkgPath()+".", "", 1)
 }
 
-// Pipeline is a step that executes a series of other steps in sequential order.
-// It can also have middleware that is applied to each step in the pipeline.
+// PipelineSpec is the serializable representation of a Pipeline.
+type PipelineSpec struct {
+	Tasks []*TaskSpec `json:"tasks"`
+}
+
+// Pipeline is a step that executes a series of other tasks in sequential order.
+// It can also have middleware that is applied to each task in the pipeline.
 type Pipeline[T any] struct {
-	Steps      []Step[T]
+	Tasks      []*Task[T]
 	Middleware []Middleware[T]
 }
 
@@ -43,11 +50,11 @@ type Pipeline[T any] struct {
 func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 	resp := req
 	var err error
-	for i := range p.Steps {
+	for i := range p.Tasks {
 		for _, m := range slices.Backward(p.Middleware) {
-			p.Steps[i] = m(p.Steps[i])
+			p.Tasks[i] = m(p.Tasks[i])
 		}
-		resp, err = p.Steps[i].Run(ctx, req)
+		resp, err = p.Tasks[i].Run(ctx, req)
 		if err != nil {
 			return nil, err
 		}
@@ -57,17 +64,17 @@ func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 }
 
 func (p *Pipeline[T]) String() string {
-	if len(p.Steps) == 0 {
+	if len(p.Tasks) == 0 {
 		return Name(p)
 	}
 	var buf strings.Builder
 	buf.WriteString("\n")
 	buf.WriteString(Name(p))
-	for i, step := range p.Steps {
+	for i, task := range p.Tasks {
 		buf.WriteString("\n")
 		var prefix string
 		var childPrefix string
-		if i == len(p.Steps)-1 {
+		if i == len(p.Tasks)-1 {
 			prefix = "└── "
 			childPrefix = "    "
 		} else {
@@ -76,7 +83,7 @@ func (p *Pipeline[T]) String() string {
 		}
 		buf.WriteString(prefix)
 
-		s := step.String()
+		s := task.String()
 		lines := strings.Split(s, "\n")
 		buf.WriteString(lines[0])
 		for _, line := range lines[1:] {
@@ -89,11 +96,32 @@ func (p *Pipeline[T]) String() string {
 	return buf.String()
 }
 
+// ToSpec returns the serializable representation of the Pipeline.
+func (p *Pipeline[T]) ToSpec() *PipelineSpec {
+	spec := &PipelineSpec{
+		Tasks: make([]*TaskSpec, len(p.Tasks)),
+	}
+	for i, task := range p.Tasks {
+		spec.Tasks[i] = task.ToSpec()
+	}
+	return spec
+}
+
+// Save saves the pipeline to a file.
+func (p *Pipeline[T]) Save(path string) error {
+	spec := p.ToSpec()
+	b, err := json.MarshalIndent(spec, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0644)
+}
+
 // NewPipeline creates a new pipeline with the given middleware.
 func NewPipeline[T any](mid ...Middleware[T]) *Pipeline[T] {
 	return &Pipeline[T]{
 		Middleware: mid,
-		Steps:      make([]Step[T], 0),
+		Tasks:      make([]*Task[T], 0),
 	}
 }
 
@@ -118,7 +146,7 @@ func (f StepFunc[T]) String() string {
 type MidFunc[T any] struct {
 	Name string
 	Fn   func(context.Context, *T) (*T, error)
-	Next Step[T]
+	Next *Task[T]
 }
 
 // Run executes the function.
@@ -134,7 +162,7 @@ func (m *MidFunc[T]) String() string {
 
 // Middleware is a function that wraps a step to add functionality, such as
 // logging or error handling.
-type Middleware[T any] func(s Step[T]) Step[T]
+type Middleware[T any] func(s *Task[T]) *Task[T]
 
 // Selector
 
@@ -146,8 +174,8 @@ type Selector[T any] func(context.Context, *T) bool
 // of a selector function.
 type selector[T any] struct {
 	s          Selector[T]
-	ifStep     Step[T]
-	elseStep   Step[T]
+	ifTask     *Task[T]
+	elseTask   *Task[T]
 	middleware []Middleware[T]
 }
 
@@ -159,8 +187,8 @@ func (s selector[T]) String() string {
 	// IF
 	buf.WriteString("\n")
 	buf.WriteString("├── IF: ")
-	if s.ifStep != nil {
-		ifStr := s.ifStep.String()
+	if s.ifTask != nil {
+		ifStr := s.ifTask.String()
 		lines := strings.Split(ifStr, "\n")
 		buf.WriteString(lines[0])
 		for _, line := range lines[1:] {
@@ -175,8 +203,8 @@ func (s selector[T]) String() string {
 	// ELSE
 	buf.WriteString("\n")
 	buf.WriteString("└── ELSE: ")
-	if s.elseStep != nil {
-		elseStr := s.elseStep.String()
+	if s.elseTask != nil {
+		elseStr := s.elseTask.String()
 		lines := strings.Split(elseStr, "\n")
 		buf.WriteString(lines[0])
 		for _, line := range lines[1:] {
@@ -191,37 +219,37 @@ func (s selector[T]) String() string {
 }
 
 // Select creates a new selector step.
-func Select[T any](mid []Middleware[T], s Selector[T], ifStep, elseStep Step[T]) Step[T] {
+func Select[T any](mid []Middleware[T], s Selector[T], ifTask, elseTask *Task[T]) Step[T] {
 	return &selector[T]{
 		s:          s,
-		ifStep:     ifStep,
-		elseStep:   elseStep,
+		ifTask:     ifTask,
+		elseTask:   elseTask,
 		middleware: mid,
 	}
 }
 
 // Run executes the selector.
 func (s selector[T]) Run(ctx context.Context, r *T) (*T, error) {
-	var step Step[T]
+	var task *Task[T]
 	if s.s(ctx, r) {
-		step = s.ifStep
+		task = s.ifTask
 	} else {
-		step = s.elseStep
+		task = s.elseTask
 	}
-	if step == nil {
-		return nil, fmt.Errorf("selector has no step for the selected condition")
+	if task == nil {
+		return nil, fmt.Errorf("selector has no task for the selected condition")
 	}
 	for _, m := range slices.Backward(s.middleware) {
-		step = m(step)
+		task = m(task)
 	}
-	return step.Run(ctx, r)
+	return task.Run(ctx, r)
 }
 
 // Series
 
 // series is a step that executes a list of other steps sequentially.
 type series[T any] struct {
-	Stages     []Step[T]
+	Tasks      []*Task[T]
 	middleware []Middleware[T]
 }
 
@@ -230,16 +258,16 @@ func (s *series[T]) String() string {
 	if s == nil {
 		return "none"
 	}
-	if len(s.Stages) == 0 {
+	if len(s.Tasks) == 0 {
 		return Name(s)
 	}
 	var buf strings.Builder
 	buf.WriteString(Name(s))
-	for i, stage := range s.Stages {
+	for i, task := range s.Tasks {
 		buf.WriteString("\n")
 		var prefix string
 		var childPrefix string
-		if i == len(s.Stages)-1 {
+		if i == len(s.Tasks)-1 {
 			prefix = "└── "
 			childPrefix = "    "
 		} else {
@@ -248,7 +276,7 @@ func (s *series[T]) String() string {
 		}
 		buf.WriteString(prefix)
 
-		st := stage.String()
+		st := task.String()
 		lines := strings.Split(st, "\n")
 		buf.WriteString(lines[0])
 		for _, line := range lines[1:] {
@@ -261,11 +289,11 @@ func (s *series[T]) String() string {
 }
 
 // Sequential executes a series of steps in sequential order.
-func Sequential[T any](mid []Middleware[T], steps ...Step[T]) *series[T] {
+func Sequential[T any](mid []Middleware[T], tasks ...*Task[T]) *series[T] {
 	// Series creates a sequential pipeline of steps with optional middleware.
 	// Returns a private type *series[T].
 	return &series[T]{
-		Stages:     steps,
+		Tasks:      tasks,
 		middleware: mid,
 	}
 }
@@ -275,11 +303,11 @@ func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 	var err error
 	resp := req
 
-	for i := range s.Stages {
+	for i := range s.Tasks {
 		for _, m := range slices.Backward(s.middleware) {
-			s.Stages[i] = m(s.Stages[i])
+			s.Tasks[i] = m(s.Tasks[i])
 		}
-		resp, err = s.Stages[i].Run(ctx, req)
+		resp, err = s.Tasks[i].Run(ctx, req)
 		if err != nil {
 			return resp, err
 		}
@@ -293,7 +321,7 @@ func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 // parallel is a step that executes a list of other steps in parallel.
 type parallel[T any] struct {
 	merge      MergeRequest[T]
-	Tasks      []Step[T]
+	Tasks      []*Task[T]
 	middleware []Middleware[T]
 }
 
@@ -338,17 +366,17 @@ type MergeRequest[T any] func(context.Context, *T, ...*T) (*T, error)
 
 // Parallel executes a list of steps in parallel.
 // Once all the steps are done, the merge request [MergeRequest] will combine all the results into one struct T.
-func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T] {
+func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], tasks ...*Task[T]) *parallel[T] {
 	return &parallel[T]{
 		merge:      merge,
-		Tasks:      steps,
+		Tasks:      tasks,
 		middleware: mid,
 	}
 }
 
 // Run executes the parallel step.
 func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
-	tasks := make([]Step[T], len(p.Tasks))
+	tasks := make([]*Task[T], len(p.Tasks))
 	for i, s := range p.Tasks {
 		tasks[i] = s
 		for _, m := range slices.Backward(p.middleware) {
