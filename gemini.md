@@ -14,6 +14,9 @@ This directory contains the core logic for the `workflow` engine, a flexible and
 -   **`go.mod`**: The Go module file that defines the module path (`github.com/veggiemonk/workflow`) and its dependencies.
 -   **`Makefile`**: Contains various development commands for testing, linting, building, and running examples.
 
+## Working with Go Code
+- read [gopls.md](./docs/gopls.md)
+
 ## Dependencies
 
 ### External

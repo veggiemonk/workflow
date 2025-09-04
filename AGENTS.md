@@ -18,7 +18,7 @@
 
 # Documentation
 - Store documentation in the `docs` directory.
-- Use Markdown and create an index named `intro.md` with links.
+- Use Markdown and create an index named `readme.md` with links.
 - Document all commands, sub-commands, and options with examples.
 
 # Working with Go Code

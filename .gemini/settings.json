@@ -16,9 +16,9 @@
   },
   "telemetry": {
     "enabled": true,
-    "target": "local",
+    "target": "gcp",
     "logPrompts": true,
-    "outfile": "docs/telemetry.log"
+    "outfile": "telemetry.log"
   },
   "privacy": {
     "usageStatisticsEnabled": true

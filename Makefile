@@ -38,11 +38,13 @@ tidy: ## Run go mod tidy on all modules
 	cd examples/cicd && go mod tidy
 	cd examples/advanced && go mod tidy
 	cd examples/middleware && go mod tidy
+	cd examples/serialization && go mod tidy
 
 clean: ## Clean build artifacts
 	go clean ./...
 	rm -f coverage.out coverage.html
 	rm -f examples/advanced/results.json
+	rm -f examples/serialization/results.json
 
 fmt: ## Format code
 	go fmt ./...

@@ -172,6 +172,9 @@ cd examples/serialization && go run main.go
 - **[Architecture](./docs/architecture.md)**: Detailed design principles and extension points
 - **[Best Practices](./docs/best-practices.md)**: Patterns, anti-patterns, and optimization tips
 - **[CHANGELOG](./CHANGELOG.md)**: Version history and breaking changes
+- **[llms.md](./docs/llms.md)**: The API of this library for LLMs.
+- **[gopls.md](./docs/gopls.md)**: MCP instructions to work with Go code.
+
 
 ## Development
 
