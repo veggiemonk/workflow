@@ -1,0 +1,7 @@
+{
+  "recommendations": [
+    "google.gemini-cli-vscode-ide-companion",
+    "google.geminicodeassist",
+    "golang.go"
+  ]
+}
