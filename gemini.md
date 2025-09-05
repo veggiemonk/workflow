@@ -41,3 +41,7 @@ The core workflow engine is the central component of this application. All other
 -   **Generics**: The engine makes extensive use of Go generics (`[T any]`) to provide type safety for the data flowing through the workflows.
 -   **Extensibility**: The engine is designed to be highly extensible. Users can create their own custom steps by implementing the `Step[T]` interface and custom middleware to add functionality to their pipelines.
 -   **Immutability**: The engine encourages immutability by passing pointers to data through the workflow and providing mechanisms for safe data copying in parallel execution.
+
+## Project Manager with Backlog CLI
+
+Read [backlog.md](./docs/backlog.md)
