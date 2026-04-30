@@ -1,6 +1,6 @@
 # Makefile for workflow project
 
-.PHONY: test lint build examples clean help docs
+.PHONY: test lint vuln build examples clean help docs
 
 # Default target
 help: ## Show this help message
@@ -10,11 +10,14 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 test: ## Run tests with coverage
-	go test -race -coverprofile=coverage.out -covermode=atomic ./...
+	go test -race -count=1 -shuffle=on -timeout=10m -coverprofile=coverage.out -covermode=atomic ./...
 	go tool cover -html=coverage.out -o coverage.html
 
 lint: ## Run golangci-lint
 	golangci-lint run ./...
+
+vuln: ## Run govulncheck
+	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 build: ## Build the project
 	go build ./...
@@ -46,7 +49,7 @@ fmt: ## Format code
 	goimports -w .
 	gofmt -s -w .
 
-check: lint test ## Run all checks (lint + test)
+check: lint vuln test ## Run all checks (lint + vuln + test)
 
 docs: ## Generate documentation
 	gomarkdoc --output docs/llms.md .
@@ -65,6 +68,6 @@ install-tools: ## Install development tools
 pin-actions: ## pin github actions
 	go tool github.com/stacklok/frizbee actions .github/workflows
 
-ci: tidy fmt lint test ## Run CI pipeline locally
+ci: tidy fmt lint vuln test ## Run CI pipeline locally
 
 .DEFAULT_GOAL := help
