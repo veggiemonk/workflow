@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	jsonv1 "encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"log"
 	"log/slog"
@@ -446,6 +448,25 @@ func generateSampleData(count int) []DataRecord {
 	return data
 }
 
+// exportOptions holds the JSON behaviour that the export needs.
+//
+//   - json/v2 has no default representation for a time.Duration. The option
+//     keeps the v1 form, a number of nanoseconds. A struct tag would not reach
+//     the durations that Metadata holds in an any.
+//   - An error has no exported field, so v1 wrote every one of them as an
+//     empty object. The marshaler writes the message instead.
+//   - v2 writes the members of a map in the order it reads them. The report
+//     goes to a file that a person reads and a diff compares, so the option
+//     keeps the sorted order that v1 gave.
+var exportOptions = json.JoinOptions(
+	jsontext.WithIndent("  "),
+	json.Deterministic(true),
+	jsonv1.FormatDurationAsNano(true),
+	json.WithMarshalers(json.MarshalToFunc(func(enc *jsontext.Encoder, err error) error {
+		return enc.WriteToken(jsontext.String(err.Error()))
+	})),
+)
+
 func exportResults(data *DataProcessingContext) error {
 	// check if results.json already exists
 	if _, err := os.Stat("results.json"); err == nil {
@@ -457,7 +478,10 @@ func exportResults(data *DataProcessingContext) error {
 	}
 	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
+	if err := json.MarshalWrite(file, data, exportOptions); err != nil {
+		return err
+	}
+	// MarshalWrite writes no trailing newline; Encoder.Encode did.
+	_, err = file.WriteString("\n")
+	return err
 }
