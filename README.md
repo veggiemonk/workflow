@@ -127,6 +127,41 @@ func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
 }
 ```
 
+## Merging parallel results
+
+The `Merge` helper **keeps the first branch; it does not add the branches
+together.** It is built on mergo, which writes into a field only while that
+field is still empty. Every branch of a `Parallel` starts from a copy of the
+same request, so the first branch fills the field and every later branch is
+ignored.
+
+In the example above both parallel tasks run `r.State.Counter++`, and the
+result is `Counter == 1`, not `2`.
+
+This follows from the shape of `Step[T]`: a step reads a `T` and returns a `T`,
+so every branch returns the whole struct and nothing says which field each
+branch owns. A patch cannot remove it.
+
+Use `Merge` only when each branch fills fields that no other branch touches.
+Otherwise pass a `MergeRequest` of your own:
+
+```go
+sum := func(ctx context.Context, req *Result, resps ...*Result) (*Result, error) {
+	out := &Result{}
+	for _, r := range resps {
+		out.State.Counter += r.State.Counter - req.State.Counter
+		out.Messages = append(out.Messages, r.Messages...)
+	}
+	out.State.Counter += req.State.Counter
+	return out, nil
+}
+
+wf.Parallel(nil, sum, task1, task2) // Counter == 2
+```
+
+[`workflow/v2`](./v2) removes the problem: a step there declares its own output
+type, and the join function is checked by the compiler.
+
 ## Core Concepts
 
 - **`Step[T]`**: The basic unit of work in a workflow. It's an interface with a single method, `Run`.

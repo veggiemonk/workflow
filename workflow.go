@@ -39,20 +39,32 @@ type Pipeline[T any] struct {
 }
 
 // Run executes the pipeline.
+//
+// Run does not modify the pipeline. It wraps each step in the middleware for
+// the length of the call only. Before v0.3.1 it wrote the wrapped step back
+// into p.Steps, so a second Run added a second layer of middleware and two
+// concurrent Runs raced.
 func (p *Pipeline[T]) Run(ctx context.Context, req *T) (*T, error) {
 	resp := req
 	var err error
 	for i := range p.Steps {
-		for _, m := range slices.Backward(p.Middleware) {
-			p.Steps[i] = m(p.Steps[i])
-		}
-		resp, err = p.Steps[i].Run(ctx, req)
+		step := apply(p.Steps[i], p.Middleware)
+		resp, err = step.Run(ctx, req)
 		if err != nil {
 			return nil, err
 		}
 		req = resp
 	}
 	return resp, nil
+}
+
+// apply wraps a step in the middleware and returns the result. It never
+// modifies the step it is given, so it is safe to call on every run.
+func apply[T any](s Step[T], mid []Middleware[T]) Step[T] {
+	for _, m := range slices.Backward(mid) {
+		s = m(s)
+	}
+	return s
 }
 
 func (p *Pipeline[T]) String() string {
@@ -210,10 +222,7 @@ func (s selector[T]) Run(ctx context.Context, r *T) (*T, error) {
 	if step == nil {
 		return nil, fmt.Errorf("selector has no step for the selected condition")
 	}
-	for _, m := range slices.Backward(s.middleware) {
-		step = m(step)
-	}
-	return step.Run(ctx, r)
+	return apply(step, s.middleware).Run(ctx, r)
 }
 
 // Series
@@ -270,15 +279,16 @@ func Sequential[T any](mid []Middleware[T], steps ...Step[T]) *series[T] {
 }
 
 // Run executes the series.
+//
+// Run does not modify the series. See [Pipeline.Run] for what changed in
+// v0.3.1.
 func (s *series[T]) Run(ctx context.Context, req *T) (*T, error) {
 	var err error
 	resp := req
 
 	for i := range s.Stages {
-		for _, m := range slices.Backward(s.middleware) {
-			s.Stages[i] = m(s.Stages[i])
-		}
-		resp, err = s.Stages[i].Run(ctx, req)
+		stage := apply(s.Stages[i], s.middleware)
+		resp, err = stage.Run(ctx, req)
 		if err != nil {
 			return resp, err
 		}
@@ -337,6 +347,16 @@ type MergeRequest[T any] func(context.Context, *T, ...*T) (*T, error)
 
 // Parallel executes a list of steps in parallel.
 // Once all the steps are done, the merge request [MergeRequest] will combine all the results into one struct T.
+//
+// Each step receives its own copy of the request, made by [SafeCopy]. A type
+// that holds a slice, a map or a pointer must implement [DeepCopyInterface];
+// otherwise the copy is shallow and the branches share that memory.
+//
+// Read the note on [Merge] before you pass it as the merge request. The
+// default merge cannot add two results together.
+//
+// A panic in a branch is returned as a [PanicError]. It no longer stops the
+// program.
 func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T]) *parallel[T] {
 	return &parallel[T]{
 		merge:      merge,
@@ -349,18 +369,22 @@ func Parallel[T any](mid []Middleware[T], merge MergeRequest[T], steps ...Step[T
 func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 	tasks := make([]Step[T], len(p.Tasks))
 	for i, s := range p.Tasks {
-		tasks[i] = s
-		for _, m := range slices.Backward(p.middleware) {
-			tasks[i] = m(tasks[i])
-		}
+		tasks[i] = apply(s, p.middleware)
 	}
 	g, groupCtx := errgroup.WithContext(ctx)
 	resps := make([]*T, len(p.Tasks))
 	mu := sync.Mutex{}
 	for i := range tasks {
 		task := tasks[i] // Capture task
-		g.Go(func() error {
-			defer CapturePanic(groupCtx)
+		g.Go(func() (err error) {
+			// A panic must become an error. Before v0.3.1 it was logged and
+			// the goroutine returned nil, so errgroup saw success, resps[i]
+			// stayed nil, and the merge then panicked on the nil pointer.
+			defer func() {
+				if r := recover(); r != nil {
+					err = &PanicError{Step: task.String(), Value: r, Stack: debug.Stack()}
+				}
+			}()
 
 			copyReq := SafeCopy(req)
 			resp, err := task.Run(groupCtx, copyReq)
@@ -381,10 +405,19 @@ func (p *parallel[T]) Run(ctx context.Context, req *T) (*T, error) {
 
 // MergeTransform is a merge request that merges the results of multiple steps
 // into a single result using the mergo library.
+//
+// It fills a field of the destination only while that field is still empty. It
+// never combines two values. Read the note on [Merge].
+//
+// A nil response is skipped.
 func MergeTransform[T any](opts ...func(*mergo.Config)) MergeRequest[T] {
 	return func(ctx context.Context, res *T, responses ...*T) (*T, error) {
 		var err error
 		for _, r := range responses {
+			if r == nil {
+				// A step that returns (nil, nil) used to make mergo panic.
+				continue
+			}
 			select {
 			case <-ctx.Done():
 				return nil, fmt.Errorf("aborting: %w", ctx.Err())
@@ -401,11 +434,40 @@ func MergeTransform[T any](opts ...func(*mergo.Config)) MergeRequest[T] {
 
 // Merge is a merge request that merges the results of multiple steps into a
 // single result using the mergo library.
+//
+// # Merge keeps the first branch, it does not add the branches together
+//
+// mergo writes into a field of the destination only while that field is still
+// empty. Every branch of a [Parallel] starts from a copy of the same request,
+// so the first branch fills the field and every later branch is ignored.
+//
+// Two branches that each add 1 to the same counter therefore give 1, not 2:
+//
+//	wf.Parallel(nil, wf.Merge[T], inc, inc) // Counter == 1
+//
+// This is a limit of the design, not a bug that a patch can remove: a step
+// reads a T and returns a T, so every branch returns the whole struct and
+// nothing says which field each branch owns.
+//
+// Use Merge only when each branch fills fields that no other branch touches.
+// In every other case pass a [MergeRequest] of your own, which knows how to
+// combine your type:
+//
+//	sum := func(ctx context.Context, req *T, resps ...*T) (*T, error) { ... }
+//	wf.Parallel(nil, sum, inc, inc) // Counter == 2
+//
+// github.com/veggiemonk/workflow/v2 removes the problem: a step there declares
+// its own output type, and the join is checked by the compiler.
 func Merge[T any](ctx context.Context, req *T, responses ...*T) (*T, error) {
 	return MergeTransform[T]()(ctx, req, responses...)
 }
 
 // CapturePanic recovers from a panic and logs the error with stack trace.
+//
+// Deprecated: CapturePanic swallows the panic. The caller sees a zero result
+// and no error, which is almost never what you want. [Parallel] no longer
+// uses it; it returns a [PanicError] instead. Recover in your own step and
+// return an error.
 func CapturePanic(ctx context.Context) {
 	if r := recover(); r != nil {
 		slog.Error("panic recovered",
