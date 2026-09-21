@@ -14,16 +14,26 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // Default is the target mage runs when the command line names none.
 var Default = Help
 
-// mageVersion pins the mage the Help target calls back into. A pinned version
-// resolves from the module cache, so the command works without the network
-// after the first run.
-const mageVersion = "github.com/magefile/mage@v1.17.2"
+// The tools the targets run. A tool that reads Go source is taken at @latest:
+// a pinned copy is built against an older parser and refuses the generic
+// methods of compose.go. ratchet reads YAML, so it is pinned.
+//
+// A pinned version resolves from the module cache, so the command works
+// without the network after the first run.
+const (
+	mageVersion      = "github.com/magefile/mage@v1.17.2"
+	ratchetVersion   = "github.com/sethvargo/ratchet@v0.12.0"
+	gofumptVersion   = "mvdan.cc/gofumpt@latest"
+	goimportsVersion = "golang.org/x/tools/cmd/goimports@latest"
+	vulnVersion      = "golang.org/x/vuln/cmd/govulncheck@latest"
+)
 
 // Show the available targets
 func Help() error {
@@ -48,7 +58,7 @@ func Lint() error {
 
 // Run govulncheck
 func Vuln() error {
-	return run("go", "run", "golang.org/x/vuln/cmd/govulncheck@latest", "./...")
+	return run("go", "run", vulnVersion, "./...")
 }
 
 // Compile the library
@@ -88,15 +98,14 @@ func Tidy() error {
 	return nil
 }
 
-// Format the code
+// Format the code with goimports and gofumpt
 func Fmt() error {
-	// goimports comes from the network rather than from PATH: an installed
-	// copy is built against an older x/tools and refuses to parse the generic
-	// methods of compose.go.
+	// goimports first and gofumpt last: gofumpt is a superset of gofmt, so it
+	// has the final say on the layout, including the import block goimports
+	// rewrote. Both walk the tree, so the examples are formatted too.
 	steps := [][]string{
-		{"go", "fmt", "./..."},
-		{"go", "run", "golang.org/x/tools/cmd/goimports@latest", "-w", "."},
-		{"gofmt", "-s", "-w", "."},
+		{"go", "run", goimportsVersion, "-w", "."},
+		{"go", "run", gofumptVersion, "-w", "."},
 	}
 	for _, step := range steps {
 		if err := run(step[0], step[1:]...); err != nil {
@@ -152,22 +161,60 @@ func Docs() error {
 }
 
 // Install the development tools on PATH
+//
+// golangci-lint is the only tool that must be installed. The others run with
+// `go run`, which needs nothing on PATH.
 func InstallTools() error {
-	tools := []string{
-		"github.com/golangci/golangci-lint/cmd/golangci-lint@latest",
-		"github.com/stacklok/frizbee@latest",
-	}
-	for _, tool := range tools {
-		if err := run("go", "install", tool); err != nil {
-			return err
-		}
-	}
-	return nil
+	return run("go", "install", "github.com/golangci/golangci-lint/cmd/golangci-lint@latest")
 }
 
-// Pin the GitHub Actions to a digest
+// Pin the unpinned GitHub Actions to a digest with ratchet
 func PinActions() error {
-	return run("go", "run", "github.com/stacklok/frizbee@latest", "actions", ".github/workflows")
+	return ratchet("pin")
+}
+
+// Update the pinned GitHub Actions to the latest digest with ratchet
+func UpdateActions() error {
+	return ratchet("update")
+}
+
+// Report the unpinned GitHub Actions. It changes no file, so it is safe for CI
+func LintActions() error {
+	return ratchet("lint")
+}
+
+// ratchet runs one ratchet command over every workflow file. ratchet keeps the
+// original version in a comment next to the digest, which is what lets
+// `update` resolve that constraint again later.
+//
+// A command that writes rewrites the file through a YAML parser: the digests
+// are correct, but the blank lines and the line breaks move. Read the diff
+// before you keep it. `lint` writes nothing.
+func ratchet(command string) error {
+	files, err := workflowFiles()
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		fmt.Println("no workflow file under .github/workflows; nothing to do")
+		return nil
+	}
+	return run("go", append([]string{"run", ratchetVersion, command}, files...)...)
+}
+
+// workflowFiles lists the GitHub Actions workflows, in both spellings of the
+// YAML extension.
+func workflowFiles() ([]string, error) {
+	var files []string
+	for _, ext := range []string{"*.yml", "*.yaml"} {
+		found, err := filepath.Glob(filepath.Join(".github", "workflows", ext))
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, found...)
+	}
+	slices.Sort(files)
+	return files, nil
 }
 
 // Remove the build artefacts
