@@ -1,31 +1,19 @@
-# CI/CD Pipeline Example
+# CI/CD
 
-This example demonstrates how to build a complete CI/CD pipeline using the workflow engine, showcasing parallel execution, conditional logic, and comprehensive logging.
+A build pipeline: check out, test, build, deploy.
 
 ## What it does
 
-This CI/CD pipeline includes:
+1. `Checkout` turns a `Commit` into a `Source`.
+2. `Fan` runs the tests, the linter and the security scan at the same time,
+   and one join function turns the three `Check` values into a `Quality`.
+3. `Identity` carries the source past the checks, so the build can read both.
+4. `If` builds only when every check passed.
+5. `Seq` chains the rollout: staging, smoke tests, production.
+6. A second `If` deploys the artifact, or notifies the team.
 
-1. **Code Checkout**: Simulates pulling source code
-2. **Parallel Quality Checks**: 
-   - Unit tests
-   - Code linting
-   - Security scanning
-3. **Conditional Build**: Only builds if quality checks pass
-4. **Conditional Deployment**: 
-   - Deploy to staging
-   - Run smoke tests
-   - Deploy to production (if staging succeeds)
-5. **Reporting**: Generate final pipeline report
-
-## Features demonstrated
-
-- **Parallel execution**: Quality checks run concurrently
-- **Conditional logic**: Using `Select` for branching workflows
-- **Middleware**: UUID tracking and structured logging
-- **Sequential workflows**: Multi-step deployment process
-- **Error handling**: Graceful failure management
-- **Real-world simulation**: Timing and realistic step names
+Each stage has its own type. A stage cannot read a field that the stage
+before it did not produce, because the field is not there.
 
 ## Running the example
 
@@ -34,20 +22,11 @@ cd examples/cicd
 go run main.go
 ```
 
-## Expected output
+## What to look at
 
-The pipeline will show:
-- Real-time step execution with emojis
-- Parallel execution of quality checks
-- Conditional branching based on results
-- Structured logging with UUIDs
-- Final pipeline visualization
-- Execution timing and results
-
-## Key concepts
-
-- **Complex workflows**: Multi-stage pipeline with dependencies
-- **Conditional execution**: Steps that run based on previous results
-- **Parallel processing**: Independent tasks running concurrently
-- **Error propagation**: How failures affect downstream steps
-- **Middleware composition**: Combining logging and UUID tracking
+- `Fan` replaces the reflective merge of v1. The shape of the joined result
+  is decided by the join function, in the example, not by the library.
+- Every branch of `Fan` runs to the end. `Fan` returns every error, joined
+  with `errors.Join`.
+- `Log` and `WithID` are methods on the step that needs them, not settings on
+  a pipeline.

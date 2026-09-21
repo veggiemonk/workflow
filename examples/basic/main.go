@@ -4,76 +4,63 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	wf "github.com/veggiemonk/workflow"
 )
 
-// ProcessData represents the data flowing through our pipeline
-type ProcessData struct {
-	Input    string
-	Output   string
-	Messages []string
-	Counter  int
+// Report is what the pipeline returns. Every step between the input and the
+// report has its own output type, so no single struct carries the whole run.
+type Report struct {
+	Words  int
+	Unique int
+	Head   string
 }
 
 func main() {
-	// Create a simple pipeline
-	pipeline := wf.NewPipeline[ProcessData]()
+	// A step declares its input type and its output type. Pure is for a
+	// function that cannot fail.
+	clean := wf.Pure("Clean", strings.TrimSpace)     // string   -> string
+	split := wf.Pure("Split", strings.Fields)        // string   -> []string
+	count := wf.Pure("Count", func(w []string) int { // []string -> int
+		return len(w)
+	})
+	unique := wf.Pure("Unique", func(w []string) int { // []string -> int
+		seen := make(map[string]struct{}, len(w))
+		for _, word := range w {
+			seen[strings.ToLower(word)] = struct{}{}
+		}
+		return len(seen)
+	})
+	head := wf.Pure("Head", func(w []string) string { // []string -> string
+		return strings.Join(w[:min(3, len(w))], " ")
+	})
 
-	// Define the steps
-	pipeline.Steps = []wf.Step[ProcessData]{
-		// Step 1: Initialize
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
-			data.Messages = append(data.Messages, "Pipeline started")
-			fmt.Println("✓ Pipeline initialized")
-			return data, nil
-		}),
+	// Count, Unique and Head read the same words. Par runs two steps at the
+	// same time and joins their results with a function you supply. The join
+	// is typed, so the compiler will not let a result be dropped.
+	analyse := count.
+		Par(unique, func(n, u int) ([2]int, error) { return [2]int{n, u}, nil }).
+		Par(head, func(nu [2]int, h string) (Report, error) {
+			return Report{Words: nu[0], Unique: nu[1], Head: h}, nil
+		})
 
-		// Step 2: Transform input
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
-			data.Output = fmt.Sprintf("Processed: %s", data.Input)
-			data.Messages = append(data.Messages, "Input transformed")
-			fmt.Println("✓ Input transformed")
-			return data, nil
-		}),
+	// Then links the steps. The chain changes type at every link.
+	pipeline := clean.Then(split).Then(analyse) // Step[string, Report]
 
-		// Step 3: Count processing
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
-			data.Counter++
-			data.Messages = append(data.Messages, "Counter incremented")
-			fmt.Println("✓ Counter incremented")
-			return data, nil
-		}),
-
-		// Step 4: Finalize
-		wf.StepFunc[ProcessData](func(ctx context.Context, data *ProcessData) (*ProcessData, error) {
-			data.Messages = append(data.Messages, "Pipeline completed")
-			fmt.Println("✓ Pipeline completed")
-			return data, nil
-		}),
-	}
-
-	// Execute the pipeline
 	fmt.Println("🚀 Starting basic workflow example...")
 	fmt.Println()
 
-	result, err := pipeline.Run(context.Background(), &ProcessData{
-		Input: "Hello World",
-	})
+	report, err := pipeline.Run(context.Background(), "  the quick brown fox jumps over the lazy dog  ")
 	if err != nil {
 		log.Fatalf("Pipeline failed: %v", err)
 	}
 
-	// Display results
-	fmt.Println("\n📊 Results:")
-	fmt.Printf("Input: %s\n", result.Input)
-	fmt.Printf("Output: %s\n", result.Output)
-	fmt.Printf("Counter: %d\n", result.Counter)
-	fmt.Println("\n📝 Messages:")
-	for i, msg := range result.Messages {
-		fmt.Printf("%d. %s\n", i+1, msg)
-	}
+	fmt.Println("📊 Results:")
+	fmt.Printf("Words:  %d\n", report.Words)
+	fmt.Printf("Unique: %d\n", report.Unique)
+	fmt.Printf("Head:   %q\n", report.Head)
 
-	fmt.Println("\n🌳 Pipeline Structure:")
-	fmt.Print(pipeline.String())
+	fmt.Println("\n🌳 Pipeline structure:")
+	fmt.Println(pipeline)
 }

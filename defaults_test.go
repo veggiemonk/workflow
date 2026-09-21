@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	workflow "github.com/veggiemonk/workflow/v2"
+	workflow "github.com/veggiemonk/workflow"
 )
 
 func TestIdentity(t *testing.T) {

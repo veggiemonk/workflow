@@ -1,225 +1,195 @@
 # workflow
 
-A tiny, flexible, and extensible workflow engine in Go, designed to be generic and suitable for various applications, including CI/CD pipelines.
-
-[![Go Reference](https://pkg.go.dev/badge/github.com/veggiemonk/workflow.svg)](https://pkg.go.dev/github.com/veggiemonk/workflow) [![Go Report Card](https://goreportcard.com/badge/github.com/veggiemonk/workflow)](https://goreportcard.com/report/github.com/veggiemonk/workflow)
-
-## Features
-
-- **Pipelines**: Define a sequence of steps to be executed.
-- **Sequential and Parallel Execution**: Run steps one after another or concurrently.
-- **Conditional Logic**: Use selectors to execute different steps based on conditions.
-- **Middleware**: Intercept and modify the execution of steps for cross-cutting concerns:
-  - **Retry Middleware**: Automatic retry with configurable backoff strategies
-  - **Timeout Middleware**: Per-step timeout enforcement with context cancellation
-  - **Circuit Breaker Middleware**: Prevent cascading failures with automatic recovery
-  - **Logger Middleware**: Structured logging for observability
-  - **UUID Middleware**: Unique step execution tracking
-- **Generic**: Works with any data type, providing type safety.
-- **Context-aware**: Supports cancellation and deadlines through `context.Context`.
-- **Extensible**: Easily create your own custom steps by implementing the `Step` interface.
-- **Debuggable**: Provides a `String()` method to print the structure of the pipeline.
-
-## Installation
+A small library that composes typed units of work into a pipeline.
 
 ```bash
 go get github.com/veggiemonk/workflow
 ```
 
-## Usage
+It needs Go 1.27, because it uses generic methods.
 
-Here is a simple example of how to use the `workflow` package to define and run a pipeline.
+## Why v0.4.0 replaced the whole API
 
-```go
-package main
+Up to v0.3.0 a step was `Step[T]`: it read a `T` and returned a `T`. One type
+had to carry the whole pipeline. That single decision caused everything else:
 
-import (
-	"bytes"
-	"context"
-	"fmt"
-	"io"
+- Parallel branches all returned the same struct, so the library needed a
+  merge function. It used reflection, and it dropped a result without a word.
+- Branches shared the struct, so the library needed a deep copy. The copy fell
+  back to a shallow copy in silence.
+- Middleware was applied while the pipeline ran, by writing to its own step
+  slice. A second run added a second layer.
 
-	wf "github.com/veggiemonk/workflow"
-)
+Now a step declares its own input type and its own output type. The compiler
+does the work that reflection did, and the three faults above cannot happen.
 
-// Result is the data structure that will be passed through the workflow.
-type Result struct {
-	Messages []string
-	State    struct {
-		Counter int
-	}
-}
+The library is below v1.0.0, so v0.4.0 takes the break instead of adding a
+`/v2` import path. The import path does not change. Pin v0.3.0 if you need the
+old API. [CHANGELOG.md](CHANGELOG.md) lists every change.
 
-func main() {
-	// Create middleware to log before and after every step.
-	var buf bytes.Buffer
-	mid := logMiddleware[Result](&buf)
-
-	// Create a new pipeline.
-	p := wf.NewPipeline(mid)
-
-	// Define the steps of the pipeline.
-	p.Steps = []wf.Step[Result]{
-		// Step 1: A simple function that modifies the result.
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-			r.Messages = append(r.Messages, "starting pipeline")
-			return r, nil
-		}),
-		// Step 2: A sequential of steps that run sequentially.
-		wf.Sequential(nil,
-			// Step 2a: A simple function.
-			wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-				r.Messages = append(r.Messages, "in sequence")
-				return r, nil
-			}),
-			// Step 2b: A parallel execution of steps.
-			wf.Parallel(nil,
-				// The merge function combines the results of the parallel steps.
-				wf.Merge[Result],
-				// Parallel task 1.
-				wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-					r.State.Counter++
-					r.Messages = append(r.Messages, "parallel task 1")
-					return r, nil
-				}),
-				// Parallel task 2.
-				wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-					r.State.Counter++
-					r.Messages = append(r.Messages, "parallel task 2")
-					return r, nil
-				}),
-			),
-		),
-		// Step 3: A final step.
-		wf.StepFunc[Result](func(ctx context.Context, r *Result) (*Result, error) {
-			r.Messages = append(r.Messages, "pipeline finished")
-			return r, nil
-		}),
-	}
-
-	// Run the pipeline.
-	_, err := p.Run(context.Background(), &Result{})
-	if err != nil {
-		fmt.Println("Error:", err)
-	}
-
-	// Print the pipeline structure.
-	fmt.Println(p)
-
-	// Print buffer from the logs.
-	fmt.Print(buf.String())
-}
-
-func logMiddleware[T any](l io.Writer) wf.Middleware[T] {
-	return func(next wf.Step[T]) wf.Step[T] {
-		return &wf.MidFunc[T]{
-			Name: "Logger",
-			Next: next,
-			Fn: func(ctx context.Context, res *T) (*T, error) {
-				name := wf.Name(next)
-				fmt.Fprintf(l, "start: name=%s ", name)
-				resp, err := next.Run(ctx, res)
-				fmt.Fprintf(l, "done: name=%s ", name)
-				return resp, err
-			},
-		}
-	}
-}
-```
-
-## Merging parallel results
-
-The `Merge` helper **keeps the first branch; it does not add the branches
-together.** It is built on mergo, which writes into a field only while that
-field is still empty. Every branch of a `Parallel` starts from a copy of the
-same request, so the first branch fills the field and every later branch is
-ignored.
-
-In the example above both parallel tasks run `r.State.Counter++`, and the
-result is `Counter == 1`, not `2`.
-
-This follows from the shape of `Step[T]`: a step reads a `T` and returns a `T`,
-so every branch returns the whole struct and nothing says which field each
-branch owns. A patch cannot remove it.
-
-Use `Merge` only when each branch fills fields that no other branch touches.
-Otherwise pass a `MergeRequest` of your own:
+## The design in one page
 
 ```go
-sum := func(ctx context.Context, req *Result, resps ...*Result) (*Result, error) {
-	out := &Result{}
-	for _, r := range resps {
-		out.State.Counter += r.State.Counter - req.State.Counter
-		out.Messages = append(out.Messages, r.Messages...)
-	}
-	out.State.Counter += req.State.Counter
-	return out, nil
-}
+type Step[I, O any] struct{ /* unexported */ }   // a value, not an interface
 
-wf.Parallel(nil, sum, task1, task2) // Counter == 2
+func (s Step[I, O]) Run(ctx context.Context, in I) (O, error)
 ```
 
-[`workflow/v2`](./v2) removes the problem: a step there declares its own output
-type, and the join function is checked by the compiler.
+`Step` is a **concrete struct**, not an interface. That is deliberate. Go 1.27
+allows type parameters on a method only when the receiver is a concrete type:
 
-## Core Concepts
-
-- **`Step[T]`**: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
-- **`Pipeline[T]`**: A series of steps that are executed in order.
-- **`Sequential[T]`**: A step that executes a list of other steps sequentially.
-- **`Parallel[T]`**: A step that executes a list of other steps in parallel and merges their results.
-- **`Select[T]`**: A step that executes one of two other steps based on a selector function.
-- **`Middleware[T]`**: A function that wraps a step to add functionality, such as logging or error handling.
-
-## Examples
-
-Comprehensive examples are available in the [`examples/`](./examples/) directory:
-
-- **[Basic](./examples/basic/)**: Simple sequential pipeline demonstrating fundamental concepts
-- **[CI/CD](./examples/cicd/)**: Realistic CI/CD pipeline with parallel checks and conditional deployment
-- **[Advanced](./examples/advanced/)**: Sophisticated data processing with custom middleware and complex workflows
-- **[Middleware](./examples/middleware/)**: Comprehensive demonstration of retry, timeout, and circuit breaker middleware
-
-Run examples:
-```bash
-# Basic example
-cd examples/basic && go run main.go
-
-# CI/CD pipeline example
-cd examples/cicd && go run main.go
-
-# Advanced data processing
-cd examples/advanced && go run main.go
-
-# Middleware demonstration
-cd examples/middleware && go run main.go
+```
+interface method must have no type parameters
 ```
 
-## Documentation
+A generic method is what lets a chain change its type:
 
-- **[Architecture](./docs/architecture.md)**: Detailed design principles and extension points
-- **[Best Practices](./docs/best-practices.md)**: Patterns, anti-patterns, and optimization tips
-- **[CHANGELOG](./CHANGELOG.md)**: Version history and breaking changes
-
-## Development
-
-```bash
-# Run tests
-make test
-
-# Run linting
-make lint
-
-# Run all examples
-make examples
-
-# Run CI pipeline locally
-make ci
-
-# See all available commands
-make help
+```go
+func (s Step[I, O]) Then[P any](next Step[O, P]) Step[I, P]
 ```
 
-## License
+To write a step on a type that holds state, implement `Runner` — a plain
+interface, so it stays legal — and wrap it with `Of`:
 
-This project is licensed under the Apache License - see the [LICENSE](LICENSE) file for details.
+```go
+type Runner[I, O any] interface{ Run(context.Context, I) (O, error) }
+
+step := workflow.Of("Cache", myCache)   // Step[Key, Value]
+```
+
+## Build a step
+
+| Function | Use it for |
+| --- | --- |
+| `Func(name, f)` | a function that can fail |
+| `Pure(name, f)` | a function that cannot fail |
+| `Of(name, runner)` | a type that carries state |
+| `Identity[T]()` | a step that returns its input |
+
+## Compose steps
+
+| Call | Shape |
+| --- | --- |
+| `s.Then(next)` | `Step[I,O]` + `Step[O,P]` → `Step[I,P]` |
+| `s.Map(name, f)` | `Step[I,O]` + `func(O) (P, error)` → `Step[I,P]` |
+| `s.Par(other, join)` | two steps on one input, one typed join → `Step[I,R]` |
+| `Fan(name, join, steps...)` | any number of steps that share an output type |
+| `Each(n, s)` | `Step[I,O]` → `Step[[]I,[]O]`, at most `n` at a time |
+| `Seq(name, steps...)` | a chain that does not change type |
+| `If(name, pred, then, else)` | a branch |
+
+`Each` is a function, not a method. A method returning `Step[[]I,[]O]` would
+make the compiler instantiate `Step[[][]I,[][]O]`, and so on without end. The
+compiler calls that an instantiation cycle and rejects it.
+
+```go
+analyse := count.
+    Par(uniq,  func(n, u int) ([2]int, error)            { return [2]int{n, u}, nil }).
+    Par(upper, func(nu [2]int, s string) (Report, error) { return Report{nu[0], nu[1], s}, nil })
+
+pipeline := parse.Then(analyse)      // Step[Doc, Report]
+batch    := workflow.Each(8, pipeline) // Step[[]Doc, []Report]
+```
+
+## Middleware
+
+A step is a value. Every method returns a new step and leaves the receiver
+unchanged. Middleware is applied once, when you build the step, so a second
+run can never add a second layer.
+
+```go
+step := fetch.
+    Retry(workflow.RetryConfig{MaxAttempts: 3}).
+    Timeout(2 * time.Second).
+    Breaker(breaker).
+    Log(logger)
+```
+
+| Method | What it does |
+| --- | --- |
+| `Use(mw...)` | applies your own `Middleware[I,O]`; the first is outermost |
+| `Retry(cfg)` | runs again on failure, with exponential backoff |
+| `Timeout(d)` | gives the step a context with a deadline |
+| `Recover()` | turns a panic into a `*PanicError` |
+| `Log(l)` | records the name, the duration and the error |
+| `WithID()` | puts a UUID in the context; read it with `StepID` |
+| `Breaker(cb)` | blocks the step while the circuit is open |
+
+Three notes on behaviour:
+
+- **`Log` never records the payload.** A payload can hold a secret, and
+  formatting it costs more than a short step.
+- **`Timeout` starts no goroutine.** Go cannot stop a goroutine from outside,
+  so the step must honour the context. A step that does no I/O must test
+  `ctx.Err()` itself. v0.3.0 raced a goroutine and leaked it.
+- **A `CircuitBreaker` is an explicit value.** You decide what shares it. In
+  v0.3.0 the state sat in a closure, so every step the middleware wrapped
+  shared one circuit without saying so.
+
+## Errors and panics
+
+`Par`, `Fan` and `Each` run every branch to the end and return every error,
+joined with `errors.Join`. They do not stop at the first failure.
+
+Each of them also turns a panic in a branch into a `*PanicError`, because a
+panic in a goroutine would otherwise stop the program. A step that runs in
+sequence is left alone: its panic travels up your own stack, as Go intends.
+Call `Recover()` when you want that converted too.
+
+## Cost
+
+On an Apple M4 Max, Go 1.27:
+
+```
+BenchmarkRun-16                296803701     4.158 ns/op     0 B/op   0 allocs/op
+BenchmarkThenChain-16           32746808    36.06  ns/op     0 B/op   0 allocs/op
+BenchmarkSeq-16                 45185329    28.23  ns/op     0 B/op   0 allocs/op
+BenchmarkPar-16                  1583120   758.9   ns/op   288 B/op   6 allocs/op
+BenchmarkEach100-16                30480 39491     ns/op 20422 B/op 104 allocs/op
+BenchmarkMiddlewareStack-16      4575774   262.6   ns/op   272 B/op   4 allocs/op
+```
+
+The sequential path allocates nothing. Only the concurrent combinators
+allocate, for the goroutines and the result slices.
+
+## Move from v0.3.0
+
+| v0.3.0 | v0.4.0 |
+| --- | --- |
+| `Step[T]` interface | `Step[I,O]` struct, or the `Runner[I,O]` interface |
+| `StepFunc[T](f)` | `Func(name, f)` or `Pure(name, f)` |
+| `NewPipeline(mid...)` + `p.Steps = …` | `a.Then(b).Then(c)`, or `Seq(name, …)` |
+| `Sequential(mid, steps...)` | `Seq(name, steps...)` |
+| `Parallel(mid, Merge, steps...)` | `s.Par(other, join)` or `Fan(name, join, steps...)` |
+| `MergeRequest`, `Merge`, `MergeTransform` | the `join` function you pass |
+| `SafeCopy`, `DeepCopyInterface` | not needed; branches return their own type |
+| `Select(mid, pred, a, b)` | `If(name, pred, a, b)` |
+| `RetryMiddleware(cfg)` | `s.Retry(cfg)` |
+| `TimeoutMiddleware(d)` | `s.Timeout(d)` |
+| `LoggerMiddleware(l)` | `s.Log(l)` |
+| `UUIDMiddleware()` | `s.WithID()` |
+| `CircuitBreakerMiddleware(cfg)` | `s.Breaker(NewCircuitBreaker(cfg))` |
+| `Name(step)` (reflection) | `step.Name()` |
+| `StepValidator`, `SafeRun` | the types check this; a zero step gives `ErrNilStep` |
+
+A v0.3.0 pipeline that keeps one type throughout maps to `Seq[T]` with no
+other change in shape, because `Step[T]` is `Step[T,T]`.
+
+This version has **no dependency outside the standard library**. v0.3.0 needed
+`mergo`, `google/uuid` and `x/sync`.
+
+## What this library is not
+
+It is an in-memory combinator library. It holds no state between runs. It cannot resume after a crash,
+and it has no general graph with shared dependencies: a pipeline is a tree of sequence and fan-out.
+Use Temporal or Cadence when you need a durable workflow.
+
+## More
+
+- [examples/](examples/): four programs, from a sentence counter to a data
+  pipeline with bounded concurrency.
+- [docs/architecture.md](docs/architecture.md): what the library is made of,
+  and where to extend it.
+- [docs/best-practices.md](docs/best-practices.md): the patterns that hold up,
+  and the ones that do not.
+- [docs/llms.md](docs/llms.md): the generated API reference.

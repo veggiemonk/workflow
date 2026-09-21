@@ -1,13 +1,16 @@
-# Basic Workflow Example
+# Basic
 
-This example demonstrates the fundamental usage of the workflow engine with a simple sequential pipeline.
+A sequential pipeline that reads a sentence and returns a report.
 
 ## What it does
 
-1. **Initialize**: Sets up the pipeline data
-2. **Transform**: Processes the input string
-3. **Count**: Increments a counter
-4. **Finalize**: Marks the pipeline as complete
+1. `Clean` trims the input. `string -> string`
+2. `Split` cuts it into words. `string -> []string`
+3. `Count`, `Unique` and `Head` read the same words at the same time.
+4. Two joins turn the three results into one `Report`.
+
+Every step has its own input type and its own output type, so no struct has
+to carry the whole run.
 
 ## Running the example
 
@@ -16,17 +19,10 @@ cd examples/basic
 go run main.go
 ```
 
-## Expected output
+## What to look at
 
-The example will show:
-- Step-by-step execution progress
-- Final results including transformed data
-- Pipeline structure visualization
-
-## Key concepts demonstrated
-
-- Creating a basic pipeline
-- Using `StepFunc` to define inline steps
-- Sequential step execution
-- Data transformation through steps
-- Pipeline structure inspection
+- `Pure` builds a step from a function that cannot fail.
+- `Then` links two steps and lets the chain change type.
+- `Par` runs two steps on one input and joins them with a typed function. The
+  compiler will not let a branch result be dropped.
+- Printing the pipeline gives a tree of the steps as they were declared.

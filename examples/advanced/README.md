@@ -1,38 +1,17 @@
-# Advanced Data Processing Example
+# Advanced
 
-This example demonstrates sophisticated workflow patterns including custom middleware, complex data structures, parallel processing with custom merge functions, and comprehensive error handling.
+A data pipeline with bounded concurrency, a quality gate and a custom
+middleware.
 
 ## What it does
 
-This advanced data processing pipeline includes:
-
-1. **Data Initialization**: Set up processing context with metrics
-2. **Parallel Validation & Preprocessing**: 
-   - Data quality validation
-   - Preprocessing operations
-   - Initial metrics calculation
-3. **Conditional Processing Paths**:
-   - **High Quality Path**: Parallel processing by record type with aggregation
-   - **Low Quality Path**: Data cleaning and reprocessing
-4. **Final Validation**: Quality checks and report generation
-
-## Advanced features demonstrated
-
-### Custom Middleware
-- **Metrics Middleware**: Automatic timing collection for each step
-- **Error Handling Middleware**: Graceful error recovery and continuation
-- **Combined Middleware**: Multiple middleware working together
-
-### Complex Data Flow
-- **Custom Merge Function**: Safe parallel data aggregation with mutex
-- **Rich Data Structures**: Nested structs with comprehensive metadata
-- **Metrics Collection**: Throughput, timing, and quality metrics
-
-### Real-world Patterns
-- **Data Quality Branching**: Different processing paths based on data quality
-- **Parallel Processing**: Independent operations on different data subsets
-- **Comprehensive Logging**: Structured JSON logging with step tracking
-- **Result Export**: JSON serialization of complete processing results
+1. `Inspect` counts the invalid records and keeps the input it judged.
+2. `If` cleans the input when more than a tenth of it is invalid.
+3. `Each(8, transform)` processes the records, at most eight at a time.
+4. `summarise` counts the categories and the throughput, and the report is
+   written to `results.json`.
+5. The last part runs the same batch on uncleaned input, to show the errors
+   that `Each` joins together.
 
 ## Running the example
 
@@ -41,31 +20,19 @@ cd examples/advanced
 go run main.go
 ```
 
-This will:
-- Process 1000 sample records
-- Show real-time execution progress
-- Generate detailed metrics and timings
-- Export results to `results.json`
-- Display the complete pipeline structure
+## What to look at
 
-## Expected output
-
-The pipeline will show:
-- Parallel execution visualization
-- Step-by-step timing information
-- Processing metrics and throughput
-- Quality analysis results
-- Comprehensive error handling
-- Final pipeline structure tree
+- `timed` is a custom middleware. `Middleware[I, O]` is a function from a step
+  to a step, so writing one needs nothing from the library. A step holds no
+  state of its own, so the durations go to a collector you can read.
+- `Each` is a function, not a method. A method returning `Step[[]I, []O]`
+  would make the compiler instantiate `Step[[][]I, [][]O]`, and so on without
+  end.
+- `Each` runs every element to the end and returns every error joined with
+  `errors.Join`. Nothing is dropped in silence.
+- The export uses `encoding/json/v2`. The options keep the duration format and
+  the sorted map order that v1 gave.
 
 ## Files generated
 
-- `results.json`: Complete processing results with metadata
-
-## Key concepts
-
-- **Custom middleware**: Building domain-specific pipeline enhancements
-- **Complex merge functions**: Safe data aggregation in parallel workflows
-- **Conditional workflows**: Dynamic pipeline behavior based on data conditions
-- **Performance monitoring**: Automatic metrics collection and reporting
-- **Error resilience**: Graceful degradation and error recovery patterns
+- `results.json`

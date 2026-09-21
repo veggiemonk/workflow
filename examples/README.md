@@ -1,79 +1,42 @@
 # Examples
 
-This directory contains comprehensive examples demonstrating various aspects of the workflow engine.
+Four programs, from the shortest to the longest. Each one is its own module
+with a `replace` directive to the library, so `go run main.go` uses the
+working tree.
 
-## Available Examples
+## The examples
 
 ### 1. [Basic](./basic/)
-A simple sequential pipeline demonstrating fundamental concepts:
-- Creating pipelines
-- Defining steps with `StepFunc`
-- Data transformation
-- Pipeline visualization
 
-**Best for**: Learning the basics, getting started
+A sentence in, a report out. `Pure`, `Then`, `Par`, and the tree that a
+pipeline prints.
 
 ### 2. [CI/CD](./cicd/)
-A realistic CI/CD pipeline showcasing:
-- Parallel quality checks (tests, linting, security)
-- Conditional deployment logic
-- Structured logging with middleware
-- Real-world workflow patterns
 
-**Best for**: Understanding practical applications, DevOps workflows
+A build pipeline where every stage has its own type. `Fan` for the quality
+checks, `If` for the gates, `Seq` for the rollout.
 
-### 3. [Advanced](./advanced/)
-A sophisticated data processing pipeline featuring:
-- Custom middleware development
-- Complex parallel processing with custom merge functions
-- Dynamic conditional workflows
-- Comprehensive metrics and error handling
-- Data export and reporting
+### 3. [Middleware](./middleware/)
 
-**Best for**: Advanced patterns, production-ready workflows
+`Retry`, `Timeout`, `Breaker`, `Log` and `WithID`, each on the step that needs
+it. A stateful step behind `Of`.
 
-### 4. [Middleware](./middleware/)
-Comprehensive demonstration of built-in middleware:
-- **Retry Middleware**: Automatic retry with exponential backoff
-- **Timeout Middleware**: Per-step timeout enforcement
-- **Circuit Breaker Middleware**: Failure protection and recovery
-- **Logger & UUID Middleware**: Observability and tracing
-- **Middleware Composition**: Combining multiple middleware
+### 4. [Advanced](./advanced/)
 
-**Best for**: Understanding resilience patterns, production reliability
+`Each` with bounded concurrency, a custom `Middleware`, a quality gate, joined
+errors, and a JSON report.
 
-## Running Examples
-
-Each example is self-contained with its own `main.go` and documentation:
+## Running them
 
 ```bash
-# Basic example
 cd basic && go run main.go
-
-# CI/CD example  
 cd cicd && go run main.go
-
-# Advanced example
-cd advanced && go run main.go
-
-# Middleware example
 cd middleware && go run main.go
+cd advanced && go run main.go
 ```
 
-## Learning Path
+Or run them all from the root of the repository:
 
-1. **Start with Basic**: Understand core concepts
-2. **Try CI/CD**: See real-world application patterns
-3. **Explore Advanced**: Learn sophisticated patterns and customization
-
-## Common Patterns Demonstrated
-
-- **Sequential Execution**: Steps running one after another
-- **Parallel Execution**: Independent tasks running concurrently
-- **Conditional Logic**: Branching workflows with `Select`
-- **Middleware Usage**: Cross-cutting concerns like logging and metrics
-- **Error Handling**: Graceful failure management
-- **Data Transformation**: Passing and modifying data through pipelines
-- **Pipeline Visualization**: Understanding workflow structure
-
-Each example builds upon the previous one, introducing more sophisticated concepts and patterns.
+```bash
+go run github.com/magefile/mage@v1.17.2 examples
+```
