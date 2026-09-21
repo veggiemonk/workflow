@@ -35,4 +35,8 @@ cd middleware && go run main.go
 cd advanced && go run main.go
 ```
 
-Or `make examples` from the root of the repository.
+Or run them all from the root of the repository:
+
+```bash
+go run github.com/magefile/mage@v1.17.2 examples
+```

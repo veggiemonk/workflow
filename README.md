@@ -180,10 +180,9 @@ This version has **no dependency outside the standard library**. v0.3.0 needed
 
 ## What this library is not
 
-It is an in-memory combinator library. It holds no state between runs. It
-cannot resume after a crash, and it has no general graph with shared
-dependencies: a pipeline is a tree of sequence and fan-out. Use Temporal or
-Cadence when you need a durable workflow.
+It is an in-memory combinator library. It holds no state between runs. It cannot resume after a crash,
+and it has no general graph with shared dependencies: a pipeline is a tree of sequence and fan-out.
+Use Temporal or Cadence when you need a durable workflow.
 
 ## More
 

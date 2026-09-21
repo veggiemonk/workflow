@@ -17,7 +17,14 @@ jobs:
       fail-fast: false
       matrix:
         # The library, and each example, is its own module.
-        module: [".", "examples/basic", "examples/cicd", "examples/middleware", "examples/advanced"]
+        module:
+          [
+            ".",
+            "examples/basic",
+            "examples/cicd",
+            "examples/middleware",
+            "examples/advanced",
+          ]
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -29,14 +36,6 @@ jobs:
         with:
           go-version-file: "${{ matrix.module }}/go.mod"
 
-      # - name: Cache Go modules
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: ~/go/pkg/mod
-      #     key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-      #     restore-keys: |
-      #       ${{ runner.os }}-go-
-
       - name: Download dependencies
         run: go mod download && go mod verify
 
@@ -44,4 +43,4 @@ jobs:
         run: go vet ./...
 
       - name: Run tests
-        run: go test -race -count=1 -shuffle=on -timeout=10m -coverprofile=coverage.out -covermode=atomic ./...
+        run: go test -race -shuffle=on -timeout=10m ./...
