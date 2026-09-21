@@ -158,7 +158,7 @@ func main() {
 	// Example 2: Order with retry scenarios
 	fmt.Println("Example 2: Processing order with potential retries")
 	// Process multiple orders to show retry behavior
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		orderID := fmt.Sprintf("ORD-00%d", i+2)
 		fmt.Printf("Processing order %s:\n", orderID)
 		runOrderProcessing(
@@ -235,7 +235,7 @@ func runOrderProcessingWithCircuitBreaker(middleware ...wf.Middleware[OrderData]
 	fmt.Println("Testing circuit breaker with multiple failing requests...")
 
 	// Process multiple orders to potentially trigger circuit breaker
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		order := &OrderData{
 			OrderID:    fmt.Sprintf("CB-ORD-%03d", i+1),
 			CustomerID: "CUST-CB",
