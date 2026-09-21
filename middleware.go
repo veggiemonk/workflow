@@ -5,308 +5,264 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 	"uuid"
 )
 
-// contextKey is a custom type for context keys to avoid collisions.
-type contextKey string
+// Middleware wraps a step to add behaviour such as logging or retry.
+//
+// Middleware is applied once, when you build the step. [Step.Use] returns a
+// new step and leaves the receiver unchanged, so a step can never collect a
+// second layer of middleware when you run it again.
+type Middleware[I, O any] func(Step[I, O]) Step[I, O]
 
-// StepUUIDKey is the context key for storing step UUIDs.
-const StepUUIDKey contextKey = "step_uuid"
-
-// UUIDMiddleware returns a middleware that assigns a unique UUID to each step execution.
-// The UUID is stored in the context with the key StepUUIDKey and can be retrieved
-// using ctx.Value(StepUUIDKey).(string).
-func UUIDMiddleware[T any]() Middleware[T] {
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
-			Name: "UUID",
-			Next: next,
-			Fn: func(ctx context.Context, req *T) (*T, error) {
-				stepUUID := uuid.New().String()
-				ctx = context.WithValue(ctx, StepUUIDKey, stepUUID)
-				return next.Run(ctx, req)
-			},
+// Use applies middleware to the step and returns the wrapped step.
+// The first middleware given is the outermost.
+func (s Step[I, O]) Use(mw ...Middleware[I, O]) Step[I, O] {
+	for _, m := range slices.Backward(mw) {
+		if m == nil {
+			continue
 		}
+		s = m(s)
 	}
+	return s
 }
 
-// LoggerMiddleware returns a middleware that logs step execution using the provided slog.Logger.
-func LoggerMiddleware[T any](l *slog.Logger) Middleware[T] {
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
-			Name: "Logger",
-			Next: next,
-			Fn: func(ctx context.Context, res *T) (*T, error) {
-				start := time.Now()
-				name := Name(next)
-				l.Info("start", "Type", name)
-				resp, err := next.Run(ctx, res)
-				l.Info("done",
-					"Type", name,
-					"duration", time.Since(start),
-					"Result", fmt.Sprintf("%v", resp))
-				return resp, err
-			},
-		}
-	}
+// Recover turns a panic raised by the step into a [PanicError].
+//
+// [Par], [Fan] and [Each] already do this for every branch, because a panic in
+// a goroutine stops the program. A step that runs in sequence does not need
+// Recover: its panic travels up the caller's own stack, as Go intends.
+func (s Step[I, O]) Recover() Step[I, O] {
+	inner := s
+	return s.wrap("Recover", func(ctx context.Context, in I) (out O, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				var zero O
+				out, err = zero, recovered(r, inner.displayName())
+			}
+		}()
+		return inner.Run(ctx, in)
+	})
 }
 
-// RetryConfig defines the configuration for retry middleware.
+// RetryConfig configures [Step.Retry].
 type RetryConfig struct {
-	// MaxAttempts is the maximum number of attempts (including the initial attempt).
-	// Must be at least 1. Default is 3.
+	// MaxAttempts counts the first try as well. Below 1 means 3.
 	MaxAttempts int
-
-	// InitialDelay is the delay before the first retry.
-	// Default is 100ms.
+	// InitialDelay is the wait before the first retry. Below 1 means 100ms.
 	InitialDelay time.Duration
-
-	// MaxDelay is the maximum delay between retries.
-	// Default is 5 seconds.
+	// MaxDelay caps the wait. Below 1 means 5s.
 	MaxDelay time.Duration
-
-	// BackoffMultiplier is the multiplier for exponential backoff.
-	// Default is 2.0.
+	// BackoffMultiplier multiplies the wait after each try. Below 1 means 2.
 	BackoffMultiplier float64
-
-	// ShouldRetry is a function that determines whether an error should trigger a retry.
-	// If nil, all errors will trigger retries.
+	// ShouldRetry decides whether an error is worth another try.
+	// A nil ShouldRetry retries every error.
 	ShouldRetry func(error) bool
 }
 
-// DefaultRetryConfig returns a retry configuration with sensible defaults.
-func DefaultRetryConfig() RetryConfig {
-	return RetryConfig{
-		MaxAttempts:       3,
-		InitialDelay:      100 * time.Millisecond,
-		MaxDelay:          5 * time.Second,
-		BackoffMultiplier: 2.0,
-		ShouldRetry:       nil, // retry all errors
+func (c RetryConfig) withDefaults() RetryConfig {
+	if c.MaxAttempts < 1 {
+		c.MaxAttempts = 3
 	}
+	if c.InitialDelay < 1 {
+		c.InitialDelay = 100 * time.Millisecond
+	}
+	if c.MaxDelay < 1 {
+		c.MaxDelay = 5 * time.Second
+	}
+	if c.BackoffMultiplier < 1 {
+		c.BackoffMultiplier = 2
+	}
+	return c
 }
 
-// RetryMiddleware returns a middleware that retries failed step executions
-// according to the provided configuration.
-func RetryMiddleware[T any](config RetryConfig) Middleware[T] {
-	// Set defaults if not specified
-	if config.MaxAttempts <= 0 {
-		config.MaxAttempts = 3
-	}
-	if config.InitialDelay <= 0 {
-		config.InitialDelay = 100 * time.Millisecond
-	}
-	if config.MaxDelay <= 0 {
-		config.MaxDelay = 5 * time.Second
-	}
-	if config.BackoffMultiplier <= 0 {
-		config.BackoffMultiplier = 2.0
-	}
-
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
-			Name: "Retry",
-			Next: next,
-			Fn: func(ctx context.Context, req *T) (*T, error) {
-				var lastErr error
-				delay := config.InitialDelay
-
-				for attempt := 1; attempt <= config.MaxAttempts; attempt++ {
-					// Check if context is cancelled before attempting
-					if err := ctx.Err(); err != nil {
-						return nil, err
-					}
-
-					resp, err := next.Run(ctx, req)
-					if err == nil {
-						return resp, nil
-					}
-
-					lastErr = err
-
-					// Check if we should retry this error
-					if config.ShouldRetry != nil && !config.ShouldRetry(err) {
-						return nil, err
-					}
-
-					// Don't sleep after the last attempt
-					if attempt < config.MaxAttempts {
-						// Create a timer for the delay
-						timer := time.NewTimer(delay)
-						select {
-						case <-ctx.Done():
-							timer.Stop()
-							return nil, ctx.Err()
-						case <-timer.C:
-							// Continue to next attempt
-						}
-
-						// Calculate next delay with exponential backoff
-						nextDelay := time.Duration(float64(delay) * config.BackoffMultiplier)
-						delay = min(nextDelay, config.MaxDelay)
-					}
-				}
-
-				// All attempts failed, return the last error wrapped with attempt info
-				return nil, fmt.Errorf("step failed after %d attempts: %w", config.MaxAttempts, lastErr)
-			},
+// Retry runs the step again when it fails, with exponential backoff.
+// It stops early when the context ends.
+func (s Step[I, O]) Retry(cfg RetryConfig) Step[I, O] {
+	cfg = cfg.withDefaults()
+	inner := s
+	return s.wrap(fmt.Sprintf("Retry(%d)", cfg.MaxAttempts), func(ctx context.Context, in I) (O, error) {
+		var last error
+		delay := cfg.InitialDelay
+		for attempt := 1; attempt <= cfg.MaxAttempts; attempt++ {
+			if err := ctx.Err(); err != nil {
+				var zero O
+				return zero, err
+			}
+			out, err := inner.Run(ctx, in)
+			if err == nil {
+				return out, nil
+			}
+			last = err
+			if cfg.ShouldRetry != nil && !cfg.ShouldRetry(err) {
+				var zero O
+				return zero, err
+			}
+			if attempt == cfg.MaxAttempts {
+				break
+			}
+			timer := time.NewTimer(delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				var zero O
+				return zero, ctx.Err()
+			case <-timer.C:
+			}
+			delay = min(time.Duration(float64(delay)*cfg.BackoffMultiplier), cfg.MaxDelay)
 		}
-	}
+		var zero O
+		return zero, fmt.Errorf("%s failed after %d attempts: %w", inner.displayName(), cfg.MaxAttempts, last)
+	})
 }
 
-// TimeoutMiddleware returns a middleware that enforces a timeout on step execution.
-// If the step doesn't complete within the specified duration, it returns a context
-// deadline exceeded error.
-func TimeoutMiddleware[T any](timeout time.Duration) Middleware[T] {
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
-			Name: "Timeout",
-			Next: next,
-			Fn: func(ctx context.Context, req *T) (*T, error) {
-				// Create a new context with timeout
-				timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-				defer cancel()
-
-				// Channel to receive the result
-				type result struct {
-					resp *T
-					err  error
-				}
-				resultCh := make(chan result, 1)
-
-				// Run the step in a goroutine
-				go func() {
-					resp, err := next.Run(timeoutCtx, req)
-					resultCh <- result{resp: resp, err: err}
-				}()
-
-				// Wait for either completion or timeout
-				select {
-				case res := <-resultCh:
-					return res.resp, res.err
-				case <-timeoutCtx.Done():
-					return nil, fmt.Errorf("step timed out after %v: %w", timeout, timeoutCtx.Err())
-				}
-			},
+// Timeout gives the step a context with a deadline.
+//
+// The step must honour the context. Timeout does not start a goroutine and it
+// does not abandon a running step, because Go cannot stop a goroutine from
+// outside. A step that does no I/O must test ctx.Err() itself.
+func (s Step[I, O]) Timeout(d time.Duration) Step[I, O] {
+	inner := s
+	return s.wrap(fmt.Sprintf("Timeout(%s)", d), func(ctx context.Context, in I) (O, error) {
+		ctx, cancel := context.WithTimeout(ctx, d)
+		defer cancel()
+		out, err := inner.Run(ctx, in)
+		if err != nil && ctx.Err() != nil {
+			var zero O
+			return zero, fmt.Errorf("%s timed out after %s: %w", inner.displayName(), d, err)
 		}
-	}
+		return out, err
+	})
 }
 
-// CircuitBreakerState represents the state of a circuit breaker.
-type CircuitBreakerState int
+// Log records the name, the duration and the error of each run.
+//
+// Log never records the input or the output. A payload can hold a secret, and
+// formatting it costs more than the step itself in a hot pipeline.
+func (s Step[I, O]) Log(l *slog.Logger) Step[I, O] {
+	if l == nil {
+		l = slog.Default()
+	}
+	inner := s
+	return s.wrap("Log", func(ctx context.Context, in I) (O, error) {
+		name := inner.displayName()
+		start := time.Now()
+		l.DebugContext(ctx, "step start", "step", name)
+		out, err := inner.Run(ctx, in)
+		attrs := []any{"step", name, "duration", time.Since(start)}
+		if err != nil {
+			l.ErrorContext(ctx, "step failed", append(attrs, "error", err)...)
+		} else {
+			l.InfoContext(ctx, "step done", attrs...)
+		}
+		return out, err
+	})
+}
 
-const (
-	// CircuitClosed indicates the circuit is closed and operations are allowed.
-	CircuitClosed CircuitBreakerState = iota
-	// CircuitOpen indicates the circuit is open and operations are blocked.
-	CircuitOpen
-	// CircuitHalfOpen indicates the circuit is half-open and allows limited operations.
-	CircuitHalfOpen
-)
+type idKey struct{}
 
-// CircuitBreakerConfig defines the configuration for circuit breaker middleware.
+// StepID returns the identifier that [Step.WithID] put in the context.
+func StepID(ctx context.Context) (string, bool) {
+	id, ok := ctx.Value(idKey{}).(string)
+	return id, ok
+}
+
+// WithID puts a fresh UUID in the context for the length of the run.
+// Read it with [StepID].
+func (s Step[I, O]) WithID() Step[I, O] {
+	inner := s
+	return s.wrap("WithID", func(ctx context.Context, in I) (O, error) {
+		return inner.Run(context.WithValue(ctx, idKey{}, uuid.NewV7().String()), in)
+	})
+}
+
+// ErrCircuitOpen is returned while a [CircuitBreaker] is open.
+var ErrCircuitOpen = errors.New("workflow: circuit breaker is open")
+
+// CircuitBreakerConfig configures a [CircuitBreaker].
 type CircuitBreakerConfig struct {
-	// FailureThreshold is the number of consecutive failures that will open the circuit.
-	// Default is 5.
+	// FailureThreshold is the count of failures in a row that opens the
+	// circuit. Below 1 means 5.
 	FailureThreshold int
-
-	// OpenTimeout is how long the circuit stays open before transitioning to half-open.
-	// Default is 60 seconds.
+	// OpenTimeout is how long the circuit stays open. Below 1 means 60s.
 	OpenTimeout time.Duration
-
-	// ShouldTrip is a function that determines whether an error should count as a failure.
-	// If nil, all errors count as failures.
+	// ShouldTrip decides whether an error counts as a failure.
+	// A nil ShouldTrip counts every error.
 	ShouldTrip func(error) bool
 }
 
-// DefaultCircuitBreakerConfig returns a circuit breaker configuration with sensible defaults.
-func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
-	return CircuitBreakerConfig{
-		FailureThreshold: 5,
-		OpenTimeout:      60 * time.Second,
-		ShouldTrip:       nil, // all errors count as failures
+// CircuitBreaker stops calling a step that keeps failing.
+//
+// The breaker is an explicit value, so you decide what shares it. Give one
+// breaker to one step to guard that step alone. Give the same breaker to
+// several steps only when they all depend on the same remote service.
+type CircuitBreaker struct {
+	cfg CircuitBreakerConfig
+
+	mu       sync.Mutex
+	failures int
+	openedAt time.Time
+	halfOpen bool
+}
+
+// NewCircuitBreaker builds a breaker.
+func NewCircuitBreaker(cfg CircuitBreakerConfig) *CircuitBreaker {
+	if cfg.FailureThreshold < 1 {
+		cfg.FailureThreshold = 5
+	}
+	if cfg.OpenTimeout < 1 {
+		cfg.OpenTimeout = 60 * time.Second
+	}
+	return &CircuitBreaker{cfg: cfg}
+}
+
+// allow reports whether a call may proceed now.
+func (cb *CircuitBreaker) allow() bool {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	if cb.failures < cb.cfg.FailureThreshold {
+		return true
+	}
+	if time.Since(cb.openedAt) < cb.cfg.OpenTimeout {
+		return false
+	}
+	cb.halfOpen = true
+	return true
+}
+
+// record updates the breaker with the result of a call.
+func (cb *CircuitBreaker) record(err error) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+	failed := err != nil && (cb.cfg.ShouldTrip == nil || cb.cfg.ShouldTrip(err))
+	switch {
+	case failed && cb.halfOpen:
+		cb.openedAt = time.Now()
+		cb.halfOpen = false
+	case failed:
+		cb.failures++
+		if cb.failures >= cb.cfg.FailureThreshold {
+			cb.openedAt = time.Now()
+		}
+	default:
+		cb.failures = 0
+		cb.halfOpen = false
 	}
 }
 
-// CircuitBreakerMiddleware returns a middleware that implements the circuit breaker pattern.
-// It prevents cascading failures by temporarily blocking requests when a step consistently fails.
-func CircuitBreakerMiddleware[T any](config CircuitBreakerConfig) Middleware[T] {
-	// Set defaults if not specified
-	if config.FailureThreshold <= 0 {
-		config.FailureThreshold = 5
-	}
-	if config.OpenTimeout <= 0 {
-		config.OpenTimeout = 60 * time.Second
-	}
-
-	// Circuit breaker state
-	var (
-		state           = CircuitClosed
-		failureCount    = 0
-		lastFailureTime time.Time
-		mu              sync.RWMutex
-	)
-
-	return func(next Step[T]) Step[T] {
-		return &MidFunc[T]{
-			Name: "CircuitBreaker",
-			Next: next,
-			Fn: func(ctx context.Context, req *T) (*T, error) {
-				mu.RLock()
-				currentState := state
-				lastFailure := lastFailureTime
-				mu.RUnlock()
-
-				// Check if we should allow the request
-				switch currentState {
-				case CircuitOpen:
-					if time.Since(lastFailure) > config.OpenTimeout {
-						// Transition to half-open
-						mu.Lock()
-						if state == CircuitOpen { // Double-check under lock
-							state = CircuitHalfOpen
-						}
-						mu.Unlock()
-					} else {
-						return nil, errors.New("circuit breaker is open")
-					}
-				case CircuitHalfOpen:
-					// Allow one request to test if service is back
-				case CircuitClosed:
-					// Normal operation
-				}
-
-				// Execute the step
-				resp, err := next.Run(ctx, req)
-
-				mu.Lock()
-				defer mu.Unlock()
-
-				if err != nil && (config.ShouldTrip == nil || config.ShouldTrip(err)) {
-					failureCount++
-					lastFailureTime = time.Now()
-
-					if state == CircuitHalfOpen {
-						// Failed during half-open, go back to open
-						state = CircuitOpen
-					} else if failureCount >= config.FailureThreshold {
-						// Too many failures, open the circuit
-						state = CircuitOpen
-					}
-
-					return nil, err
-				}
-
-				// Success - reset failure count and close circuit if it was half-open
-				if state == CircuitHalfOpen {
-					state = CircuitClosed
-				}
-				failureCount = 0
-
-				return resp, nil
-			},
+// Breaker blocks the step while cb is open.
+func (s Step[I, O]) Breaker(cb *CircuitBreaker) Step[I, O] {
+	inner := s
+	return s.wrap("Breaker", func(ctx context.Context, in I) (O, error) {
+		if !cb.allow() {
+			var zero O
+			return zero, fmt.Errorf("%s: %w", inner.displayName(), ErrCircuitOpen)
 		}
-	}
+		out, err := inner.Run(ctx, in)
+		cb.record(err)
+		return out, err
+	})
 }

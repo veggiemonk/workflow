@@ -1,20 +1,39 @@
-// Package workflow provides a flexible and extensible engine for defining and executing complex workflows.
-// It allows you to create pipelines of steps that can be run sequentially or in parallel.
-// The package is designed to be generic and can be used with any data type.
+// Package workflow composes typed units of work into a pipeline.
 //
-// # Key Features
+// # The Step value
 //
-//   - Pipelines: Define a sequence of steps to be executed.
-//   - Sequential and Parallel Execution: Run steps one after another or concurrently.
-//   - Middleware: Intercept and modify the execution of steps.
-//   - Generic: Works with any data type.
-//   - Context-aware: Supports cancellation and deadlines through context.
+// [Step] is a concrete generic struct, not an interface. A step declares its
+// own input type and its own output type:
 //
-// # Core Concepts
+//	Step[I, O any]  // Run(ctx, I) (O, error)
 //
-//   - Step: The basic unit of work in a workflow. It's an interface with a single method, `Run`.
-//   - Pipeline: A series of steps that are executed in order.
-//   - Sequential: A step that executes a list of other steps sequentially.
-//   - Parallel: A step that executes a list of other steps in parallel and merges their results.
-//   - Middleware: A function that wraps a step to add functionality, such as logging or error handling.
+// A struct is necessary because Go 1.27 allows type parameters on a method
+// only when the receiver is a concrete type. An interface method must have no
+// type parameters. Generic methods are what let a chain change its type:
+//
+//	parse := workflow.Func("Parse", func(ctx context.Context, s string) (Tokens, error) { ... })
+//	count := workflow.Func("Count", func(ctx context.Context, t Tokens) (int, error) { ... })
+//	pipeline := parse.Then(count) // Step[string, int]
+//
+// To write a step on a type that carries state, implement [Runner] and wrap it
+// with [Of]. [Runner] is a plain interface, so it stays legal.
+//
+// # A step is immutable
+//
+// Every method returns a new [Step]. No method writes to its receiver. A step
+// is therefore safe to share, to reuse and to run concurrently. Middleware is
+// applied once, when the step is built, never while it runs.
+//
+// # Concurrency
+//
+// [Step.Par] runs two steps on the same input and joins their results with a
+// function you supply. [Fan] does the same for any number of steps that share
+// an output type. [Each] applies one step to every element of a slice. All
+// three keep the results typed, so no result can be lost, and none of them
+// copies your data.
+//
+// # Errors
+//
+// A concurrent combinator collects every branch error with [errors.Join]. It
+// does not stop at the first one.
 package workflow

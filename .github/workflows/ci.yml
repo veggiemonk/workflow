@@ -16,8 +16,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Each major version is its own module and needs its own run.
-        module: [".", "v2"]
+        # The library, and each example, is its own module.
+        module: [".", "examples/basic", "examples/cicd", "examples/middleware", "examples/advanced"]
     defaults:
       run:
         working-directory: ${{ matrix.module }}
@@ -28,8 +28,6 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # ratchet:actions/setup-go@v7.0.0
         with:
           go-version-file: "${{ matrix.module }}/go.mod"
-          cache-dependency-path: |
-            go.sum
 
       # - name: Cache Go modules
       #   uses: actions/cache@v4

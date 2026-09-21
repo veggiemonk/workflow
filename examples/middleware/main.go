@@ -5,293 +5,196 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	wf "github.com/veggiemonk/workflow"
 )
 
-// OrderData represents an order processing workflow data.
-type OrderData struct {
-	OrderID     string
-	CustomerID  string
-	Amount      float64
-	Status      string
-	ProcessedAt time.Time
-	Retries     int
+// The stages of an order. Each middleware method returns a new step, so the
+// step it wraps is never changed and can be reused elsewhere.
+
+type Order struct {
+	ID       string
+	Customer string
+	Amount   float64
 }
 
-func (o OrderData) String() string {
-	return fmt.Sprintf("Order{ID: %s, Customer: %s, Amount: %.2f, Status: %s, Retries: %d}",
-		o.OrderID, o.CustomerID, o.Amount, o.Status, o.Retries)
+type Payment struct {
+	Order Order
+	Auth  string
+	Paid  time.Time
 }
 
-// validateOrderStep validates the order data.
-type validateOrderStep struct{}
+type Reservation struct {
+	Payment Payment
+	Slot    string
+}
 
-func (v *validateOrderStep) Run(ctx context.Context, order *OrderData) (*OrderData, error) {
-	if order.OrderID == "" {
-		return nil, errors.New("order ID is required")
+type Shipment struct {
+	Order    Order
+	Tracking string
+}
+
+func (s Shipment) String() string {
+	return fmt.Sprintf("Shipment{Order: %s, Tracking: %s}", s.Order.ID, s.Tracking)
+}
+
+var errGatewayDown = errors.New("payment service temporarily unavailable")
+
+// gateway is a stateful step: it fails its first failFirst calls and then
+// succeeds. A type with state implements Runner, and Of turns it into a Step.
+type gateway struct {
+	failFirst int32
+	calls     atomic.Int32
+}
+
+func (g *gateway) Run(ctx context.Context, o Order) (Payment, error) {
+	if g.calls.Add(1) <= g.failFirst {
+		return Payment{}, errGatewayDown
 	}
-	if order.Amount <= 0 {
-		return nil, errors.New("order amount must be positive")
-	}
-
-	order.Status = "validated"
-	return order, nil
-}
-
-func (v *validateOrderStep) String() string {
-	return "ValidateOrder"
-}
-
-// paymentStep processes payment (simulates external service that might fail).
-type paymentStep struct{}
-
-func (p *paymentStep) Run(ctx context.Context, order *OrderData) (*OrderData, error) {
-	// Simulate random failures (30% chance)
-	if rand.Float64() < 0.3 {
-		return nil, errors.New("payment service temporarily unavailable")
-	}
-
-	// Simulate slow processing
 	select {
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(20 * time.Millisecond):
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return Payment{}, ctx.Err()
 	}
-
-	order.Status = "paid"
-	order.ProcessedAt = time.Now()
-	return order, nil
+	return Payment{Order: o, Auth: "AUTH-" + o.ID, Paid: time.Now()}, nil
 }
 
-func (p *paymentStep) String() string {
-	return "ProcessPayment"
-}
+// validate rejects a malformed order. Its error is not worth a retry.
+var validate = wf.Func("Validate", func(_ context.Context, o Order) (Order, error) {
+	switch {
+	case o.ID == "":
+		return Order{}, errors.New("order ID is required")
+	case o.Amount <= 0:
+		return Order{}, errors.New("order amount must be positive")
+	}
+	return o, nil
+})
 
-// inventoryStep checks and reserves inventory (might be slow).
-type inventoryStep struct{}
-
-func (i *inventoryStep) Run(ctx context.Context, order *OrderData) (*OrderData, error) {
-	// Simulate slow inventory check
+// reserve is slow on purpose: it is what the timeout example cuts short.
+var reserve = wf.Func("Reserve", func(ctx context.Context, p Payment) (Reservation, error) {
 	select {
 	case <-time.After(200 * time.Millisecond):
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return Reservation{}, ctx.Err()
 	}
+	return Reservation{Payment: p, Slot: "WH-1"}, nil
+})
 
-	// Simulate occasional inventory issues (10% chance)
-	if rand.Float64() < 0.1 {
-		return nil, errors.New("insufficient inventory")
-	}
+var ship = wf.Pure("Ship", func(r Reservation) Shipment {
+	return Shipment{Order: r.Payment.Order, Tracking: "TRK-" + r.Payment.Order.ID}
+})
 
-	order.Status = "inventory_reserved"
-	return order, nil
-}
-
-func (i *inventoryStep) String() string {
-	return "CheckInventory"
-}
-
-// shippingStep creates shipping label.
-type shippingStep struct{}
-
-func (s *shippingStep) Run(ctx context.Context, order *OrderData) (*OrderData, error) {
-	order.Status = "shipped"
-	return order, nil
-}
-
-func (s *shippingStep) String() string {
-	return "CreateShipping"
+var retry = wf.RetryConfig{
+	MaxAttempts:       3,
+	InitialDelay:      50 * time.Millisecond,
+	MaxDelay:          500 * time.Millisecond,
+	BackoffMultiplier: 2,
+	// Retry the gateway, never a rejected order.
+	ShouldRetry: func(err error) bool { return errors.Is(err, errGatewayDown) },
 }
 
 func main() {
-	// Set up logger
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
 
-	// Create middleware configurations
-	retryConfig := wf.RetryConfig{
-		MaxAttempts:       3,
-		InitialDelay:      50 * time.Millisecond,
-		MaxDelay:          500 * time.Millisecond,
-		BackoffMultiplier: 2.0,
-		ShouldRetry: func(err error) bool {
-			// Only retry for specific errors
-			return err.Error() == "payment service temporarily unavailable" ||
-				err.Error() == "insufficient inventory"
-		},
-	}
+	fmt.Println("=== Order processing with middleware ===")
 
-	circuitBreakerConfig := wf.CircuitBreakerConfig{
+	example1(logger)
+	separator()
+	example2(logger)
+	separator()
+	example3(logger)
+	separator()
+	example4(logger)
+}
+
+// Example 1: middleware sits on the step that needs it, not on the pipeline.
+// Only the payment call is retried; validation is not.
+func example1(logger *slog.Logger) {
+	fmt.Println("Example 1: a valid order")
+
+	pay := wf.Of("Pay", &gateway{}).
+		Retry(retry).
+		Timeout(time.Second).
+		Log(logger)
+
+	pipeline := validate.Then(pay).Then(reserve).Then(ship).WithID()
+
+	fmt.Println("Pipeline structure:")
+	fmt.Println(pipeline)
+
+	run(pipeline, Order{ID: "ORD-001", Customer: "CUST-123", Amount: 99.99})
+}
+
+// Example 2: the gateway fails twice, Retry waits and tries again.
+func example2(logger *slog.Logger) {
+	fmt.Println("Example 2: a flaky payment gateway")
+
+	flaky := &gateway{failFirst: 2}
+	pay := wf.Of("Pay", flaky).Retry(retry).Log(logger)
+	pipeline := validate.Then(pay).Then(reserve).Then(ship)
+
+	run(pipeline, Order{ID: "ORD-002", Customer: "CUST-456", Amount: 149.99})
+	fmt.Printf("gateway calls: %d\n", flaky.calls.Load())
+}
+
+// Example 3: a CircuitBreaker is an explicit value. You decide what shares
+// it. Here one breaker guards one step; after three failures it opens and
+// the step is not called again until the timeout passes.
+func example3(logger *slog.Logger) {
+	fmt.Println("Example 3: a circuit breaker")
+
+	breaker := wf.NewCircuitBreaker(wf.CircuitBreakerConfig{
 		FailureThreshold: 3,
 		OpenTimeout:      2 * time.Second,
-		ShouldTrip: func(err error) bool {
-			// Trip circuit breaker for service unavailability
-			return err.Error() == "payment service temporarily unavailable"
-		},
-	}
+		ShouldTrip:       func(err error) bool { return errors.Is(err, errGatewayDown) },
+	})
 
-	// Create middleware
-	retryMiddleware := wf.RetryMiddleware[OrderData](retryConfig)
-	timeoutMiddleware := wf.TimeoutMiddleware[OrderData](1 * time.Second)
-	circuitBreakerMiddleware := wf.CircuitBreakerMiddleware[OrderData](circuitBreakerConfig)
-	loggerMiddleware := wf.LoggerMiddleware[OrderData](logger)
-	uuidMiddleware := wf.UUIDMiddleware[OrderData]()
+	down := &gateway{failFirst: 100} // always down
+	pay := wf.Of("Pay", down).Breaker(breaker).Log(logger)
+	pipeline := validate.Then(pay).Then(reserve).Then(ship)
 
-	fmt.Println("=== Order Processing Pipeline with Middleware ===")
-	fmt.Println()
-
-	// Example 1: Successful order processing
-	fmt.Println("Example 1: Processing a valid order")
-	runOrderProcessing(
-		"ORD-001", "CUST-123", 99.99,
-		retryMiddleware, timeoutMiddleware, loggerMiddleware, uuidMiddleware,
-	)
-
-	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
-
-	// Example 2: Order with retry scenarios
-	fmt.Println("Example 2: Processing order with potential retries")
-	// Process multiple orders to show retry behavior
-	for i := range 3 {
-		orderID := fmt.Sprintf("ORD-00%d", i+2)
-		fmt.Printf("Processing order %s:\n", orderID)
-		runOrderProcessing(
-			orderID, "CUST-456", 149.99,
-			retryMiddleware, timeoutMiddleware, loggerMiddleware,
-		)
-		fmt.Println()
-	}
-
-	fmt.Println(strings.Repeat("=", 50) + "\n")
-
-	// Example 3: With circuit breaker
-	fmt.Println("Example 3: Processing with circuit breaker protection")
-	runOrderProcessingWithCircuitBreaker(
-		retryMiddleware, timeoutMiddleware, circuitBreakerMiddleware, loggerMiddleware,
-	)
-
-	fmt.Println("\n" + strings.Repeat("=", 50) + "\n")
-
-	// Example 4: Timeout demonstration
-	fmt.Println("Example 4: Demonstrating timeout protection")
-	runOrderProcessingWithTimeout(loggerMiddleware)
-}
-
-func runOrderProcessing(orderID, customerID string, amount float64, middleware ...wf.Middleware[OrderData]) {
-	// Create pipeline with middleware
-	pipeline := wf.NewPipeline(middleware...)
-
-	// Add steps to pipeline
-	pipeline.Steps = []wf.Step[OrderData]{
-		&validateOrderStep{},
-		&paymentStep{},
-		&inventoryStep{},
-		&shippingStep{},
-	}
-
-	// Print pipeline structure
-	fmt.Println("Pipeline structure:")
-	fmt.Println(pipeline.String())
-
-	// Create order data
-	order := &OrderData{
-		OrderID:    orderID,
-		CustomerID: customerID,
-		Amount:     amount,
-		Status:     "created",
-	}
-
-	fmt.Printf("Processing order: %s\n", order)
-
-	// Execute pipeline
-	ctx := context.Background()
-	start := time.Now()
-
-	result, err := pipeline.Run(ctx, order)
-	duration := time.Since(start)
-
-	if err != nil {
-		fmt.Printf("❌ Order processing failed: %v (took %v)\n", err, duration)
-	} else {
-		fmt.Printf("✅ Order processed successfully: %s (took %v)\n", result, duration)
-	}
-}
-
-func runOrderProcessingWithCircuitBreaker(middleware ...wf.Middleware[OrderData]) {
-	// Create pipeline with circuit breaker
-	pipeline := wf.NewPipeline[OrderData](middleware...)
-	pipeline.Steps = []wf.Step[OrderData]{
-		&validateOrderStep{},
-		&paymentStep{}, // This step might trigger circuit breaker
-		&shippingStep{},
-	}
-
-	fmt.Println("Testing circuit breaker with multiple failing requests...")
-
-	// Process multiple orders to potentially trigger circuit breaker
-	for i := range 7 {
-		order := &OrderData{
-			OrderID:    fmt.Sprintf("CB-ORD-%03d", i+1),
-			CustomerID: "CUST-CB",
-			Amount:     50.00,
-			Status:     "created",
+	for i := range 6 {
+		order := Order{ID: fmt.Sprintf("CB-ORD-%03d", i+1), Customer: "CUST-CB", Amount: 50}
+		_, err := pipeline.Run(context.Background(), order)
+		switch {
+		case errors.Is(err, wf.ErrCircuitOpen):
+			fmt.Printf("Request %d: ⛔ circuit open, the gateway was not called\n", i+1)
+		case err != nil:
+			fmt.Printf("Request %d: ❌ %v\n", i+1, err)
+		default:
+			fmt.Printf("Request %d: ✅ ok\n", i+1)
 		}
-
-		ctx := context.Background()
-		start := time.Now()
-
-		result, err := pipeline.Run(ctx, order)
-		duration := time.Since(start)
-
-		if err != nil {
-			fmt.Printf("Request %d: ❌ Failed - %v (took %v)\n", i+1, err, duration)
-		} else {
-			fmt.Printf("Request %d: ✅ Success - %s (took %v)\n", i+1, result, duration)
-		}
-
-		// Small delay between requests
-		time.Sleep(10 * time.Millisecond)
 	}
+	fmt.Printf("gateway calls: %d out of 6 requests\n", down.calls.Load())
 }
 
-func runOrderProcessingWithTimeout(middleware ...wf.Middleware[OrderData]) {
-	// Create a very short timeout to demonstrate timeout protection
-	shortTimeoutMiddleware := wf.TimeoutMiddleware[OrderData](50 * time.Millisecond)
+// Example 4: Timeout gives the step a context with a deadline. It starts no
+// goroutine, so the step must honour the context; Reserve does.
+func example4(logger *slog.Logger) {
+	fmt.Println("Example 4: a timeout")
 
-	// Combine with other middleware
-	allMiddleware := append([]wf.Middleware[OrderData]{shortTimeoutMiddleware}, middleware...)
+	pay := wf.Of("Pay", &gateway{}).Log(logger)
+	slow := reserve.Timeout(50 * time.Millisecond).Log(logger)
+	pipeline := validate.Then(pay).Then(slow).Then(ship)
 
-	pipeline := wf.NewPipeline(allMiddleware...)
-	pipeline.Steps = []wf.Step[OrderData]{
-		&validateOrderStep{},
-		&inventoryStep{}, // This step takes 200ms, will timeout
-		&shippingStep{},
-	}
+	run(pipeline, Order{ID: "TIMEOUT-ORD-001", Customer: "CUST-TIMEOUT", Amount: 75})
+}
 
-	order := &OrderData{
-		OrderID:    "TIMEOUT-ORD-001",
-		CustomerID: "CUST-TIMEOUT",
-		Amount:     75.00,
-		Status:     "created",
-	}
-
-	fmt.Printf("Processing order with 50ms timeout: %s\n", order)
-
-	ctx := context.Background()
+func run(pipeline wf.Step[Order, Shipment], order Order) {
 	start := time.Now()
-
-	result, err := pipeline.Run(ctx, order)
-	duration := time.Since(start)
-
+	shipment, err := pipeline.Run(context.Background(), order)
+	took := time.Since(start).Round(time.Millisecond)
 	if err != nil {
-		fmt.Printf("❌ Order processing timed out: %v (took %v)\n", err, duration)
-	} else {
-		fmt.Printf("✅ Order processed successfully: %s (took %v)\n", result, duration)
+		fmt.Printf("❌ %s failed: %v (took %v)\n", order.ID, err, took)
+		return
 	}
+	fmt.Printf("✅ %v (took %v)\n", shipment, took)
 }
+
+func separator() { fmt.Println("\n" + strings.Repeat("=", 50) + "\n") }

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	workflow "github.com/veggiemonk/workflow/v2"
+	workflow "github.com/veggiemonk/workflow"
 )
 
 type Doc struct{ Body string }

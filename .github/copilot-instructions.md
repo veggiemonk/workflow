@@ -1,58 +1,81 @@
-# Copilot Instructions for `veggiemonk/workflow`
+# Copilot instructions for `veggiemonk/workflow`
 
-You are an senior software engineer with 20+ years of experience with engineering best practices, design patterns, and software architecture. You are working on a Go-based workflow engine that emphasizes modularity and reusability.
+This repository is a small Go library that composes typed units of work into a
+pipeline. It needs Go 1.27 and has no dependency outside the standard library.
+Keep both true.
 
-This repository implements a generic, extensible workflow engine in Go. Use these guidelines to maximize productivity and maintain consistency when contributing or using AI coding agents.
+## The one abstraction
 
-## Architecture Overview
-- **Core Abstractions:**
-  - `Step[T]`: Interface for a unit of work. Implement `Run(context.Context, *T) (*T, error)`.
-  - `Pipeline[T]`: Orchestrates a sequence of steps, supporting both sequential and parallel execution.
-  - `Series[T]` and `Parallel[T]`: Compose steps for sequential or concurrent execution. `Parallel` uses a merge function to combine results.
-  - `Middleware[T]`: Wraps steps for cross-cutting concerns (e.g., logging, metrics).
-- **Context Awareness:** All steps and pipelines use `context.Context` for cancellation and deadlines.
-- **Type Safety:** The engine is generic (`[T any]`), allowing strong typing for workflow data.
-
-## Developer Workflows
-- **Build:**
-  - Standard Go build: `go build ./...`
-- **Test:**
-  - Run all tests: `go test ./...`
-  - Example-based tests: see `workflow_example_test.go` for usage patterns.
-- **Debug:**
-  - Use the `String()` method on pipelines to print their structure for inspection.
-  - Middleware (e.g., `logMiddleware`) can be used to trace step execution.
-
-## Project-Specific Patterns
-- **Custom Steps:**
-  - Implement the `Step[T]` interface or use `StepFunc[T]` for inline steps.
-- **Composing Workflows:**
-  - Use `Series` for sequential, `Parallel` for concurrent, and `Select` for conditional execution.
-  - Merge functions are required for parallel steps to combine results.
-- **Middleware Usage:**
-  - Wrap steps with middleware for logging, error handling, etc. See `logMiddleware` in `README.md` for an example.
-- **Extensibility:**
-  - Add new step types by implementing the `Step[T]` interface.
-
-## Integration Points
-- **No external service dependencies**—the engine is self-contained and generic.
-- **Import as a Go module:** `go get github.com/veggiemonk/workflow`
-
-## Key Files
-- `workflow.go`: Core engine abstractions and implementations.
-- `workflow_example_test.go`: Usage examples and patterns.
-- `README.md`: High-level documentation and code samples.
-
-## Example: Defining a Pipeline
 ```go
-p := wf.NewPipeline(logMiddleware[Result](&buf))
-p.Steps = []wf.Step[Result]{
-    wf.StepFunc[Result](...),
-    wf.Series(nil, ...),
-    wf.Parallel(nil, wf.Merge[Result], ...),
-}
-_, err := p.Run(context.Background(), &Result{})
+type Step[I, O any] struct{ /* unexported */ }
+
+func (s Step[I, O]) Run(ctx context.Context, in I) (O, error)
 ```
 
----
-If any conventions or workflows are unclear or missing, please provide feedback for further refinement.
+- `Step` is a **concrete struct**, not an interface. Go allows type parameters
+  on a method only when the receiver is a concrete type, and a generic method
+  (`Then[P any]`) is what lets a chain change type. Do not propose turning
+  `Step` into an interface.
+- The extension point for a type that carries state is `Runner[I, O]`, a plain
+  interface, wrapped with `Of`.
+- A step is **immutable**. Every method returns a new `Step` and writes nothing
+  to its receiver. Middleware is applied when the step is built, never while it
+  runs.
+
+Build: `Func`, `Pure`, `Of`, `Identity`.
+Compose: `Then`, `Map`, `Par`, `Fan`, `Each`, `Seq`, `If`.
+Middleware: `Use`, `Retry`, `Timeout`, `Recover`, `Log`, `WithID`, `Breaker`.
+
+`Each` is a function, not a method: a method returning `Step[[]I, []O]` would
+make the compiler instantiate `Step[[][]I, [][]O]` without end, which the
+compiler rejects as an instantiation cycle. `Fan`, `Seq` and `If` are functions
+because they take a list of steps, or two branches, of one shape.
+
+## Conventions
+
+- A step takes what it needs and returns what it produced. Do not introduce a
+  struct that carries the whole run; that shape is what v0.4.0 removed.
+- The concurrent combinators run every branch to the end and return every
+  error joined with `errors.Join`. They turn a panic in a branch into a
+  `*PanicError`. Keep that.
+- They do not copy the input. A branch reads; a branch that must write makes
+  its own copy.
+- `Log` never records the payload.
+- `Timeout` starts no goroutine; the step honours the context.
+- A `CircuitBreaker` is an explicit value the caller creates and shares.
+- Doc comments are plain sentences that say why, not what the code already
+  says.
+
+## Workflows
+
+- Build: `go build ./...`
+- Test: `make test` (race, shuffle, coverage), or `go test ./...`
+- Lint: `make lint`, vulnerabilities: `make vuln`
+- Docs: `make docs` regenerates `docs/llms.md` from `go doc -all`.
+- Examples: `make examples`. Each example under `examples/` is its own module
+  with a `replace` directive to the working tree.
+- Debug a pipeline: print it. `String()` gives the tree as it was declared.
+
+## Key files
+
+- `step.go`: `Step`, `Runner`, the constructors, `Run`, `String`.
+- `compose.go`: `Then`, `Map`, `Par`, `Fan`, `Each`, `Seq`, `If`.
+- `middleware.go`: `Middleware`, the built-in middleware, `CircuitBreaker`.
+- `panic.go`: `PanicError`.
+- `example_test.go`: runnable examples.
+- `README.md`, `docs/architecture.md`, `docs/best-practices.md`.
+
+## Example
+
+```go
+parse := workflow.Func("Parse", func(ctx context.Context, s string) (Doc, error) { … })
+count := workflow.Pure("Count", func(d Doc) int { … })
+uniq  := workflow.Pure("Unique", func(d Doc) int { … })
+
+analyse := count.Par(uniq, func(n, u int) (Report, error) {
+    return Report{Words: n, Unique: u}, nil
+})
+
+pipeline := parse.Then(analyse).Retry(workflow.RetryConfig{MaxAttempts: 3})
+batch := workflow.Each(8, pipeline) // Step[[]string, []Report]
+```

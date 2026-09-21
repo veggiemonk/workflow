@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	workflow "github.com/veggiemonk/workflow/v2"
+	workflow "github.com/veggiemonk/workflow"
 )
 
 // A pipeline changes type at every link. The compiler checks each join.
