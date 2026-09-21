@@ -227,7 +227,7 @@ func (h handleErr) Run(_ context.Context, r *Result) (*Result, error) {
 type addInt struct{}
 
 func (t addInt) Transformer(typ reflect.Type) func(dst, src reflect.Value) error {
-	if typ == reflect.TypeOf(int(0)) {
+	if typ == reflect.TypeFor[int]() {
 		return func(dst, src reflect.Value) error {
 			if dst.CanSet() {
 				dst.Set(reflect.ValueOf(int(dst.Int() + src.Int())))

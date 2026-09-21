@@ -28,8 +28,7 @@ func Name[T any](s Step[T]) string {
 	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
-	var z [0]T // zero alloc
-	return strings.Replace(t.Name(), reflect.TypeOf(z).Elem().PkgPath()+".", "", 1)
+	return strings.Replace(t.Name(), reflect.TypeFor[T]().PkgPath()+".", "", 1)
 }
 
 // Pipeline is a step that executes a series of other steps in sequential order.

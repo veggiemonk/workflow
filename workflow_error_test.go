@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -333,13 +334,7 @@ func TestDeepNestedPipelines(t *testing.T) {
 
 	expectedSteps := []string{"start", "s1", "s2", "end"}
 	for _, step := range expectedSteps {
-		found := false
-		for _, pathStep := range result.Path {
-			if pathStep == step {
-				found = true
-				break
-			}
-		}
+		found := slices.Contains(result.Path, step)
 		if !found {
 			t.Errorf("Expected to find step %s in path %v", step, result.Path)
 		}
@@ -434,7 +429,7 @@ func TestConcurrentAccess(t *testing.T) {
 	}
 
 	// Collect results
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		select {
 		case result := <-results:
 			if result.Value == 0 {
