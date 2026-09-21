@@ -13,13 +13,21 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each major version is its own module and needs its own run.
+        module: [".", "v2"]
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version-file: "go.mod"
+          go-version-file: "${{ matrix.module }}/go.mod"
           cache-dependency-path: |
             go.sum
 
