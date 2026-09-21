@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Pipeline.Run` and `Sequential.Run` no longer rewrite their own step slice
+  while they run. Each run wrapped the steps again, so a middleware fired once
+  on the first run, twice on the second and three times on the third, and a
+  `Retry(3)` became 9 attempts. Two concurrent runs also raced on the slice.
+  Middleware is now applied to a local copy for the length of the call.
+- A panic in a `Parallel` branch is returned as a `PanicError`. It used to be
+  logged and swallowed: the goroutine returned nil, `errgroup` saw success, the
+  branch result stayed nil, and mergo then panicked on the nil pointer, which
+  stopped the program.
+- `Merge` and `MergeTransform` skip a nil response instead of panicking.
+
+### Added
+
+- `PanicError`, returned by `Parallel` when a branch panics.
+
+### Changed
+
+- `Pipeline.String()` and `Sequential.String()` now print the pipeline as it
+  was declared. They used to show the middleware wrappers that a previous
+  `Run` had left behind.
+
+### Deprecated
+
+- `CapturePanic` swallows the panic and leaves the caller with a zero result
+  and no error. `Parallel` no longer uses it.
+
+### Documented
+
+- `Merge` keeps the first branch; it does not add the branches together. Two
+  parallel branches that each add 1 to the same counter give 1, not 2. This
+  follows from `Step[T]` reading and returning the same type, so a patch
+  cannot remove it. `Merge`, `MergeTransform`, `Parallel`, the README and
+  `docs/llms.md` now say so, and `TestMergeDoesNotCombineValues` pins the
+  behaviour. Pass your own `MergeRequest`, or use `workflow/v2`.
+
 ## [v0.3.0] - 2025-08-21
 
 ### Added

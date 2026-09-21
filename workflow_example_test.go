@@ -91,13 +91,13 @@ func Example() {
 
 	// Output:
 	// Pipeline[Result]
-	// ├── Logger(StepFunc[workflow_test.Result])
-	// ├── Logger(series[Result]
+	// ├── StepFunc[workflow_test.Result]
+	// ├── series[Result]
 	// │   ├── StepFunc[workflow_test.Result]
 	// │   └── parallel[Result]
 	// │       ├── StepFunc[workflow_test.Result]
-	// │       └── StepFunc[workflow_test.Result])
-	// └── Logger(StepFunc[workflow_test.Result])
+	// │       └── StepFunc[workflow_test.Result]
+	// └── StepFunc[workflow_test.Result]
 	//
 	// Result{State: workflow_test.State{Counter:1}, Messages: [starting pipeline in series pipeline finished]}
 	// start: name=StepFunc[Result]

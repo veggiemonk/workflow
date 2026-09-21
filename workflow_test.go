@@ -164,11 +164,14 @@ func TestPipeline(t *testing.T) {
 	}
 }
 
+// wantTree is the pipeline as it was declared. Before v0.3.1, Run rewrote
+// p.Steps, so String() showed the middleware wrappers that Run had left
+// behind, and a second Run added them again.
 var wantTree = `
 Pipeline[Result]
-├── Logger(StepFunc[workflow_test.Result])
-├── Logger(series[Result]
-│   ├── Logger(parallel[Result]
+├── StepFunc[workflow_test.Result]
+├── series[Result]
+│   ├── parallel[Result]
 │   │   ├── StepFunc[workflow_test.Result]
 │   │   ├── StepFunc[workflow_test.Result]
 │   │   ├── StepFunc[workflow_test.Result]
@@ -178,13 +181,13 @@ Pipeline[Result]
 │   │   ├── StepFunc[workflow_test.Result]
 │   │   ├── StepFunc[workflow_test.Result]
 │   │   ├── StepFunc[workflow_test.Result]
-│   │   └── StepFunc[workflow_test.Result])
-│   └── Logger(StepFunc[workflow_test.Result]))
-├── Logger(ErrorHandler)
-├── Logger(StepFunc[workflow_test.Result])
-└── Logger(selector[Result]
+│   │   └── StepFunc[workflow_test.Result]
+│   └── StepFunc[workflow_test.Result]
+├── ErrorHandler
+├── StepFunc[workflow_test.Result]
+└── selector[Result]
     ├── IF: StepFunc[workflow_test.Result]
-    └── ELSE: StepFunc[workflow_test.Result])
+    └── ELSE: StepFunc[workflow_test.Result]
 `
 
 func TestString(t *testing.T) {

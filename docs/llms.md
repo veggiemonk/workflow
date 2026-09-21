@@ -217,6 +217,12 @@ CapturePanic recovers from a panic and logs the error with stack trace.
 
 ```go
 func Merge[T any](ctx context.Context, req *T, responses ...*T) (*T, error)
+
+// WARNING: Merge keeps the first branch; it does not add the branches
+// together. mergo writes into a field only while that field is still empty,
+// and every branch starts from a copy of the same request. Two branches that
+// each add 1 to the same counter give 1, not 2. Pass a MergeRequest of your
+// own when branches touch the same field, or use workflow/v2.
 ```
 
 Merge is a merge request that merges the results of multiple steps into a single result using the mergo library.
