@@ -73,7 +73,5 @@ func SafeCopy[T any](original *T) *T {
 	}
 
 	// Fall back to shallow copy (existing behavior)
-	cp := new(T)
-	*cp = *original
-	return cp
+	return new(*original)
 }
