@@ -27,13 +27,13 @@ func (t *TestData) String() string {
 // failingStep is a test step that fails for a specified number of attempts.
 type failingStep struct {
 	failCount   int32
-	attempts    int32
+	attempts    atomic.Int32
 	shouldFail  func(attempt int) bool
 	processTime time.Duration
 }
 
 func (f *failingStep) Run(ctx context.Context, req *TestData) (*TestData, error) {
-	attempt := atomic.AddInt32(&f.attempts, 1)
+	attempt := f.attempts.Add(1)
 
 	if f.processTime > 0 {
 		select {
@@ -63,11 +63,11 @@ func (f *failingStep) String() string {
 }
 
 func (f *failingStep) Reset() {
-	atomic.StoreInt32(&f.attempts, 0)
+	f.attempts.Store(0)
 }
 
 func (f *failingStep) GetAttempts() int {
-	return int(atomic.LoadInt32(&f.attempts))
+	return int(f.attempts.Load())
 }
 
 func TestRetryMiddleware(t *testing.T) {
