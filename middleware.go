@@ -7,8 +7,7 @@ import (
 	"log/slog"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // contextKey is a custom type for context keys to avoid collisions.
