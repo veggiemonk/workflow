@@ -33,6 +33,7 @@ const (
 	gofumptVersion   = "mvdan.cc/gofumpt@latest"
 	goimportsVersion = "golang.org/x/tools/cmd/goimports@latest"
 	vulnVersion      = "golang.org/x/vuln/cmd/govulncheck@latest"
+	embedmdVersion   = "github.com/veggiemonk/embedmd@v1.0.0"
 )
 
 // Show the available targets
@@ -115,18 +116,30 @@ func Fmt() error {
 	return nil
 }
 
-// Run lint, vuln and test
+// Run lint, vuln, verifyDocs and test
 func Check() error {
-	return serial(Lint, Vuln, Test)
+	return serial(Lint, Vuln, VerifyDocs, Test)
 }
 
-// Run the CI pipeline locally: tidy, fmt, lint, vuln and test
+// Run the CI pipeline locally: tidy, fmt, lint, vuln, verifyDocs and test
 func Ci() error {
-	return serial(Tidy, Fmt, Lint, Vuln, Test)
+	return serial(Tidy, Fmt, Lint, Vuln, VerifyDocs, Test)
 }
 
-// Regenerate docs/llms.md from go doc
+// Fail when a markdown snippet differs from its source file
+func VerifyDocs() error {
+	if err := embedmd("-d"); err != nil {
+		return fmt.Errorf("markdown snippets are stale, run: mage docs: %w", err)
+	}
+	return nil
+}
+
+// Re-embed the source snippets into the markdown, and regenerate docs/llms.md
 func Docs() error {
+	if err := embedmd("-w"); err != nil {
+		return err
+	}
+
 	// gomarkdoc cannot parse a generic method, so the reference comes from
 	// go doc.
 	out, err := exec.Command("go", "doc", "-all", ".").Output()
@@ -200,6 +213,42 @@ func ratchet(command string) error {
 		return nil
 	}
 	return run("go", append([]string{"run", ratchetVersion, command}, files...)...)
+}
+
+// embedmd runs embedmd over every markdown file. Under -d it exits non-zero
+// when a snippet is stale, which is what makes VerifyDocs a gate.
+func embedmd(mode string) error {
+	files, err := markdownFiles()
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return nil
+	}
+	return run("go", append([]string{"run", embedmdVersion, mode}, files...)...)
+}
+
+// markdownFiles lists every markdown file in the tree. It skips the VCS
+// directory and the .claude directory, which holds the git worktrees.
+func markdownFiles() ([]string, error) {
+	skip := map[string]bool{".git": true, ".claude": true, "vendor": true}
+	var files []string
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if skip[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) == ".md" {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
 }
 
 // workflowFiles lists the GitHub Actions workflows, in both spellings of the
