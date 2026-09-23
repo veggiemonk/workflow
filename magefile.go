@@ -33,7 +33,7 @@ const (
 	gofumptVersion   = "mvdan.cc/gofumpt@latest"
 	goimportsVersion = "golang.org/x/tools/cmd/goimports@latest"
 	vulnVersion      = "golang.org/x/vuln/cmd/govulncheck@latest"
-	embedmdVersion   = "github.com/veggiemonk/embedmd@v1.0.0"
+	embedmdVersion   = "github.com/veggiemonk/embedmd@v1.0.1"
 )
 
 // Show the available targets
